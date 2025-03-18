@@ -10,7 +10,8 @@ namespace Controllers
         [SerializeField] private string serverUri = "ws://localhost:6000/ws";
         [SerializeField] private GameObject playerPrefab;
         [SerializeField] private float localSpeed = 5.0f;
-        [SerializeField] private float serverTimestep = 0.05f; // 20 Hz
+        [SerializeField] private float rotationSpeed = 180f;
+        [SerializeField] private float serverTimestep = 0.05f;
 
         private WebSocketManager _networkManager;
         private PlayerPhysicsManager _physicsManager;
@@ -18,7 +19,7 @@ namespace Controllers
         private CameraController _cameraController;
         private string _localId;
         private GameObject _localPlayer;
-        private Snapshot _latestSnapshot; // Store latest snapshot for FixedUpdate
+        private Snapshot _latestSnapshot;
 
         private void Start()
         {
@@ -53,7 +54,7 @@ namespace Controllers
             if (_localPlayer == null)
             {
                 _localPlayer = Instantiate(playerPrefab);
-                _physicsManager = new PlayerPhysicsManager(_localPlayer, localSpeed, serverTimestep, _networkManager);
+                _physicsManager = new PlayerPhysicsManager(_localPlayer, localSpeed, rotationSpeed, serverTimestep, _networkManager);
                 _cameraController.target = _localPlayer.transform;
                 Debug.Log($"Local player spawned with ID: {_localId}");
             }
@@ -61,7 +62,7 @@ namespace Controllers
 
         private void FixedUpdate()
         {
-            _physicsManager?.UpdatePhysics(_latestSnapshot, _localId); // Pass snapshot for collision
+            _physicsManager?.UpdatePhysics(_latestSnapshot, _localId);
             _remoteManager?.ApplyServerPositions();
             _networkManager?.DispatchMessageQueue();
         }
@@ -80,9 +81,7 @@ namespace Controllers
                 Debug.LogWarning("OnSnapshotReceived: Received invalid snapshot.");
                 return;
             }
-
-            Debug.Log($"Snapshot received with {snapshot.Positions.Count} players at timestamp: {snapshot.Timestamp}");
-            _latestSnapshot = snapshot; // Store for FixedUpdate
+            _latestSnapshot = snapshot;
             _remoteManager.StoreSnapshot(snapshot, _localId);
         }
 

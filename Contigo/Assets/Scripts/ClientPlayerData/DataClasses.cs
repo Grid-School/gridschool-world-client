@@ -10,6 +10,7 @@ namespace ClientPlayerData
         public float X { get; set; }
         public float Y { get; set; }
         public float Z { get; set; }
+        public float Angle { get; set; } // Added for client-to-server rotation
     }
 
     [Serializable]
@@ -19,6 +20,16 @@ namespace ClientPlayerData
         public float Y;
         public float Z;
         public Vector3 ToVector3() => new Vector3(X, Y, Z);
+    }
+
+    [Serializable]
+    public class RotationData
+    {
+        public float X; // Quaternion x
+        public float Y; // Quaternion y
+        public float Z; // Quaternion z
+        public float W; // Quaternion w
+        public Quaternion ToQuaternion() => new Quaternion(X, Y, Z, W);
     }
 
     [Serializable]
@@ -52,6 +63,7 @@ namespace ClientPlayerData
     {
         public long Timestamp;
         public Dictionary<string, PositionData> Positions;
+        public Dictionary<string, RotationData> Rotations; // Added for server-to-client rotation
         public Dictionary<string, Vector3Data> Velocities;
         public Dictionary<string, CollisionData> Collisions;
     }
