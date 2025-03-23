@@ -25,20 +25,11 @@ namespace Controllers
         private ThirdPersonController _localController;
         private StarterAssetsInputs _localInputs;
         private Snapshot _latestSnapshot;
+        private bool _isDestroyed = false;
 
         private void Awake()
         {
-            jumpButton = GameObject.Find("UI_Virtual_Button_Jump")?.GetComponent<Button>();
-            sprintButton = GameObject.Find("UI_Virtual_Button_Sprint")?.GetComponent<Button>();
-
-            if (jumpButton == null || sprintButton == null)
-            {
-                Debug.LogError("One or more UI elements not found in the scene!");
-            }
-            else
-            {
-                Debug.Log("UI elements (jump and sprint buttons) found in the scene.");
-            }
+            DontDestroyOnLoad(gameObject); // Prevent MPPM from destroying prematurely
         }
 
         private async void Start()
@@ -50,7 +41,7 @@ namespace Controllers
 
             if (playerPrefab == null)
             {
-                Debug.LogError("Player Prefab is not assigned in the Inspector!");
+                Debug.LogError("Player Prefab is not assigned!", this);
                 return;
             }
 
@@ -60,10 +51,11 @@ namespace Controllers
             _networkManager.OnIdReceived += OnIdReceived;
             _networkManager.OnSnapshotReceived += OnSnapshotReceived;
 
-            Debug.Log("Attempting to connect to WebSocket...");
+            Debug.Log($"Player instance starting: {gameObject.name}", this);
             await ConnectWebSocketAsync();
+            // Remove single DispatchMessageQueue here; move to FixedUpdate
         }
-
+        
         private async Task ConnectWebSocketAsync()
         {
             try
@@ -79,58 +71,58 @@ namespace Controllers
 
         private void OnIdReceived(string id)
         {
-            Debug.Log($"OnIdReceived called with ID: {id}");
+            if (_isDestroyed || !gameObject.activeInHierarchy)
+            {
+                Debug.LogWarning($"OnIdReceived ignored: Controller destroyed or inactive for {gameObject.name}");
+                return;
+            }
+
+            Debug.Log($"OnIdReceived called with ID: {id} on {gameObject.name}", this);
             _localId = id;
             if (_localPlayer == null)
             {
-                Debug.Log("Instantiating local player...");
                 _localPlayer = Instantiate(playerPrefab, new Vector3(0, 1, 0), Quaternion.identity);
                 _localController = _localPlayer.GetComponent<ThirdPersonController>();
                 _localInputs = _localPlayer.GetComponent<StarterAssetsInputs>();
 
                 if (_localController == null || _localInputs == null)
                 {
-                    Debug.LogError("ThirdPersonController or StarterAssetsInputs not found on local player prefab!");
+                    Debug.LogError("Missing components on local player prefab!", this);
                     return;
                 }
 
-                // Set up the CameraController
-                var mainCamera = Camera.main;
-                if (mainCamera != null)
-                {
-                    var cameraController = mainCamera.GetComponent<CameraController>();
-                    if (cameraController != null)
-                    {
-                        cameraController.target = _localPlayer.transform;
-                        Debug.Log($"Set CameraController target to {_localPlayer.name}");
-                    }
-                    else
-                    {
-                        Debug.LogError("CameraController not found on MainCamera!");
-                    }
-                }
-                else
-                {
-                    Debug.LogError("MainCamera not found in the scene!");
-                }
-
-                var uiCanvasController = GameObject.Find("UI_Canvas_StarterAssetsInputs_Joysticks")?.GetComponent<UICanvasControllerInput>();
-                if (uiCanvasController != null)
-                {
-                    uiCanvasController.starterAssetsInputs = _localInputs;
-                    Debug.Log("UI canvas controller connected to StarterAssetsInputs.");
-                }
-                else
-                {
-                    Debug.LogWarning("UI_Canvas_StarterAssetsInputs_Joysticks or UICanvasControllerInput not found in the scene!");
-                }
-
-                ConnectUIElements();
-
-                Debug.Log($"Local player spawned with ID: {_localId} at position: {_localPlayer.transform.position}");
+                SetupCameraAndUI();
+                Debug.Log($"Local player spawned with ID: {_localId} at {_localPlayer.transform.position}", this);
             }
         }
+        
+        private void SetupCameraAndUI()
+        {
+            var mainCamera = Camera.main;
+            if (mainCamera != null)
+            {
+                var cameraController = mainCamera.GetComponent<CameraController>();
+                if (cameraController != null)
+                {
+                    cameraController.target = _localPlayer.transform;
+                    Debug.Log($"Set CameraController target to {_localPlayer.name}", this);
+                }
+            }
 
+            var uiCanvasObj = GameObject.Find("UI_Canvas_StarterAssetsInputs_Joysticks");
+            if (uiCanvasObj != null)
+            {
+                var uiCanvasController = uiCanvasObj.GetComponent<UICanvasControllerInput>();
+                if (uiCanvasController != null && _localInputs != null)
+                {
+                    uiCanvasController.starterAssetsInputs = _localInputs;
+                    Debug.Log($"Connected UI canvas to Inputs", this);
+                }
+            }
+
+            ConnectUIElements();
+        }
+        
         private void ConnectUIElements()
         {
             if (jumpButton != null)
@@ -138,10 +130,7 @@ namespace Controllers
                 jumpButton.onClick.RemoveAllListeners();
                 jumpButton.onClick.AddListener(() =>
                 {
-                    if (_localInputs != null)
-                    {
-                        _localInputs.jump = true;
-                    }
+                    if (_localInputs != null) _localInputs.jump = true;
                 });
                 Debug.Log("Jump button connected.");
             }
@@ -150,10 +139,7 @@ namespace Controllers
                 sprintButton.onClick.RemoveAllListeners();
                 sprintButton.onClick.AddListener(() =>
                 {
-                    if (_localInputs != null)
-                    {
-                        _localInputs.sprint = true;
-                    }
+                    if (_localInputs != null) _localInputs.sprint = true;
                 });
                 Debug.Log("Sprint button connected.");
             }
@@ -166,17 +152,19 @@ namespace Controllers
                 _localInputs.jump = false;
                 _localInputs.sprint = false;
             }
-
             _remoteManager?.InterpolateRemotePlayers();
-            _networkManager?.DispatchMessageQueue();
         }
 
         private void FixedUpdate()
         {
-            if (_networkManager == null || _localController == null || _localPlayer == null) return;
+            if (_networkManager == null || _isDestroyed) return;
 
-            SendPlayerData();
-            _remoteManager?.ApplyServerPositions();
+            _networkManager.DispatchMessageQueue(); // Process messages at fixed rate
+            if (_localController != null && _localPlayer != null)
+            {
+                SendPlayerData();
+                _remoteManager?.ApplyServerPositions();
+            }
         }
 
         private void SendPlayerData()
@@ -188,13 +176,11 @@ namespace Controllers
                 Z = _localPlayer.transform.position.z,
                 Angle = _localPlayer.transform.eulerAngles.y,
                 Speed = _localController.CurrentSpeed,
-                MotionSpeed = _localController.MotionSpeed, // Added to match updated InputMessage
+                MotionSpeed = _localController.MotionSpeed,
                 Jump = _localController.IsJumping,
                 Grounded = _localController.Grounded,
                 FreeFall = !_localController.Grounded
             };
-
-            Debug.Log($"Sending player data - Position: ({inputMessage.X}, {inputMessage.Y}, {inputMessage.Z}), Angle: {inputMessage.Angle}, Speed: {inputMessage.Speed}, MotionSpeed: {inputMessage.MotionSpeed}, Jump: {inputMessage.Jump}, Grounded: {inputMessage.Grounded}, FreeFall: {inputMessage.FreeFall}");
 
             string json = JsonConvert.SerializeObject(inputMessage);
             _networkManager.SendMessage(json);
@@ -209,27 +195,6 @@ namespace Controllers
             }
             _latestSnapshot = snapshot;
 
-            Debug.Log($"Snapshot received with timestamp: {snapshot.Timestamp}, Positions count: {snapshot.Positions.Count}");
-            if (snapshot.Positions.ContainsKey(_localId))
-            {
-                var positionData = snapshot.Positions[_localId];
-                Debug.Log($"Position for local player {_localId}: {positionData.ToVector3()}, Angle: {positionData.Angle}");
-            }
-            else
-            {
-                Debug.LogWarning($"No position found for local player {_localId} in snapshot.");
-            }
-
-            // Log animation data for all players in the snapshot
-            if (snapshot.Animations != null)
-            {
-                foreach (var kvp in snapshot.Animations)
-                {
-                    var animState = kvp.Value;
-                    Debug.Log($"Animation state for player {kvp.Key}: Speed: {animState.Speed}, MotionSpeed: {animState.MotionSpeed}, Jump: {animState.Jump}, Grounded: {animState.Grounded}, FreeFall: {animState.FreeFall}");
-                }
-            }
-
             if (_localPlayer != null && _localPlayer.transform.position == new Vector3(0, 1, 0))
             {
                 if (snapshot.Positions.ContainsKey(_localId))
@@ -241,6 +206,13 @@ namespace Controllers
             }
 
             _remoteManager.StoreSnapshot(snapshot, _localId);
+        }
+        
+        private void OnDestroy()
+        {
+            _isDestroyed = true;
+            _networkManager?.Close(); // Ensure this is the only close call
+            Debug.Log($"WebSocketPlayerController destroyed: {gameObject.name}", this);
         }
 
         private void OnApplicationQuit()

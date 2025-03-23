@@ -1,193 +1,95 @@
+using System;
 using System.Collections.Generic;
+using System.Linq;
 using ClientPlayerData;
-using Controllers;
-using StarterAssets;
 using UnityEngine;
+using Object = UnityEngine.Object;
 
-namespace Managers
+public class RemotePlayerManager
 {
-    public class RemotePlayerManager
+    private Dictionary<string, Managers.RemotePlayer> _remotePlayers = new Dictionary<string, Managers.RemotePlayer>();
+    private Snapshot _latestSnapshot;
+    private GameObject _playerPrefab;
+
+    public RemotePlayerManager(GameObject prefab)
     {
-        private readonly GameObject _playerPrefab;
-        private readonly Dictionary<string, RemotePlayer> _remotePlayers = new Dictionary<string, RemotePlayer>();
-        private Snapshot _latestSnapshot;
+        _playerPrefab = prefab;
+    }
 
-        public RemotePlayerManager(GameObject prefab)
+    public void StoreSnapshot(Snapshot snapshot, string localId)
+    {
+        _latestSnapshot = snapshot;
+
+        // Cleanup
+        var removeKeys = _remotePlayers.Keys.Where(id => !snapshot.Positions.ContainsKey(id)).ToList();
+        foreach (var id in removeKeys)
         {
-            _playerPrefab = prefab;
+            if (Application.isEditor && !Application.isPlaying)
+                Object.DestroyImmediate(_remotePlayers[id].GameObject);
+            else
+                Object.Destroy(_remotePlayers[id].GameObject);
+            _remotePlayers.Remove(id);
         }
 
-        public void StoreSnapshot(Snapshot snapshot, string localId)
+        // Spawn/Update
+        foreach (var kvp in snapshot.Positions)
         {
-            _latestSnapshot = snapshot;
-
-            // Remove players that are no longer in the snapshot
-            List<string> removeKeys = new List<string>();
-            foreach (var id in _remotePlayers.Keys)
+            if (kvp.Key == localId) continue;
+            if (!_remotePlayers.ContainsKey(kvp.Key))
             {
-                if (!snapshot.Positions.ContainsKey(id))
-                    removeKeys.Add(id);
-            }
-            foreach (var id in removeKeys)
-            {
-                GameObject.Destroy(_remotePlayers[id].GameObject);
-                _remotePlayers.Remove(id);
-                Debug.Log($"Removed remote player with ID: {id}");
-            }
-
-            // Spawn or update remote players
-            foreach (var kvp in snapshot.Positions)
-            {
-                string id = kvp.Key;
-                if (id == localId) continue; // Skip the local player
-
-                if (!_remotePlayers.ContainsKey(id))
-                {
-                    // Spawn a new remote player
-                    GameObject remoteObj = GameObject.Instantiate(_playerPrefab);
-                    // Remove CharacterController for remote players
-                    var cc = remoteObj.GetComponent<CharacterController>();
-                    if (cc != null) GameObject.Destroy(cc);
-
-                    var controller = remoteObj.GetComponent<ThirdPersonController>();
-                    if (controller != null) controller.enabled = false; // Disable local control
-
-                    // Disable Animator events for remote players
-                    var animator = remoteObj.GetComponent<Animator>();
-                    if (animator != null)
-                    {
-                        animator.applyRootMotion = false;
-                        remoteObj.tag = "RemotePlayer";
-                    }
-                    else
-                    {
-                        Debug.LogWarning($"Animator not found on remote player with ID: {id}");
-                    }
-
-                    _remotePlayers[id] = new RemotePlayer(remoteObj);
-                    Debug.Log($"Spawned remote player with ID: {id} at position: {remoteObj.transform.position}");
-                }
-            }
-        }
-
-        public void ApplyServerPositions()
-        {
-            if (_latestSnapshot == null) return;
-
-            foreach (var kvp in _latestSnapshot.Positions)
-            {
-                string id = kvp.Key;
-                if (_remotePlayers.ContainsKey(id))
-                {
-                    Vector3 serverPos = kvp.Value.ToVector3();
-                    RemotePlayer player = _remotePlayers[id];
-                    player.SetPhysicsPosition(serverPos);
-
-                    // Use the Angle from PositionData for rotation
-                    Quaternion rotation = Quaternion.Euler(0, kvp.Value.Angle, 0);
-                    player.SetPhysicsRotation(rotation);
-
-                    // Apply animation state
-                    if (_latestSnapshot.Animations != null && _latestSnapshot.Animations.ContainsKey(id))
-                    {
-                        var animState = _latestSnapshot.Animations[id];
-                        player.SetAnimationState(animState.Speed, animState.MotionSpeed, animState.Jump, animState.Grounded, animState.FreeFall);
-                    }
-
-                    Debug.Log($"Applying server position for player {id}: Position: {serverPos}, Angle: {kvp.Value.Angle}, Speed: {(_latestSnapshot.Animations != null && _latestSnapshot.Animations.ContainsKey(id) ? _latestSnapshot.Animations[id].Speed : 0)}");
-                }
-            }
-        }
-
-        public void InterpolateRemotePlayers()
-        {
-            foreach (var player in _remotePlayers.Values)
-            {
-                player.Interpolate();
+                var remoteObj = Object.Instantiate(_playerPrefab);
+#if UNITY_EDITOR
+                remoteObj.tag = TagExists("RemotePlayer") ? "RemotePlayer" : "Untagged";
+#else
+                remoteObj.tag = "RemotePlayer";
+#endif
+                _remotePlayers[kvp.Key] = new Managers.RemotePlayer(remoteObj);
             }
         }
     }
 
-    public class RemotePlayer
+    public void InterpolateRemotePlayers()
     {
-        public GameObject GameObject { get; private set; }
-        private Vector3 _physicsPosition;
-        private Vector3 _renderPosition;
-        private Quaternion _physicsRotation;
-        private Quaternion _renderRotation;
-        private Animator _animator;
+        if (_latestSnapshot == null || _remotePlayers.Count == 0) return;
 
-        // Target animation states for interpolation
-        private float _targetSpeed;
-        private float _targetMotionSpeed;
-        private bool _targetJump;
-        private bool _targetGrounded;
-        private bool _targetFreeFall;
-
-        private static readonly int SpeedHash = Animator.StringToHash("Speed");
-        private static readonly int JumpHash = Animator.StringToHash("Jump");
-        private static readonly int GroundedHash = Animator.StringToHash("Grounded");
-        private static readonly int FreeFallHash = Animator.StringToHash("FreeFall");
-        private static readonly int MotionSpeedHash = Animator.StringToHash("MotionSpeed");
-
-        public RemotePlayer(GameObject obj)
+        foreach (var kvp in _remotePlayers)
         {
-            GameObject = obj;
-            _physicsPosition = obj.transform.position;
-            _renderPosition = _physicsPosition;
-            _physicsRotation = obj.transform.rotation;
-            _renderRotation = _physicsRotation;
-            _animator = obj.GetComponent<Animator>();
-        }
-
-        public Vector3 GetPhysicsPosition()
-        {
-            return _physicsPosition;
-        }
-
-        public void SetPhysicsPosition(Vector3 position)
-        {
-            _physicsPosition = position;
-            GameObject.transform.position = position;
-        }
-
-        public void SetPhysicsRotation(Quaternion rotation)
-        {
-            _physicsRotation = rotation;
-        }
-
-        public void SetAnimationState(float speed, float motionSpeed, bool jump, bool grounded, bool freeFall)
-        {
-            _targetSpeed = speed;
-            _targetMotionSpeed = motionSpeed;
-            _targetJump = jump;
-            _targetGrounded = grounded;
-            _targetFreeFall = freeFall;
-        }
-
-        public void Interpolate()
-        {
-            float interpolationFactor = Time.deltaTime * 20f; // Faster interpolation for smoother movement
-            _renderPosition = Vector3.Lerp(_renderPosition, _physicsPosition, interpolationFactor);
-            _renderRotation = Quaternion.Slerp(_renderRotation, _physicsRotation, interpolationFactor);
-            GameObject.transform.position = _renderPosition;
-            GameObject.transform.rotation = _renderRotation;
-
-            // Interpolate animation parameters
-            if (_animator != null)
+            string id = kvp.Key;
+            Managers.RemotePlayer remote = kvp.Value;
+            if (_latestSnapshot.Positions.TryGetValue(id, out var posData))
             {
-                float currentSpeed = _animator.GetFloat(SpeedHash);
-                float smoothedSpeed = Mathf.Lerp(currentSpeed, _targetSpeed, interpolationFactor);
-                _animator.SetFloat(SpeedHash, smoothedSpeed);
-
-                float currentMotionSpeed = _animator.GetFloat(MotionSpeedHash);
-                float smoothedMotionSpeed = Mathf.Lerp(currentMotionSpeed, _targetMotionSpeed, interpolationFactor);
-                _animator.SetFloat(MotionSpeedHash, smoothedMotionSpeed);
-
-                _animator.SetBool(JumpHash, _targetJump);
-                _animator.SetBool(GroundedHash, _targetGrounded);
-                _animator.SetBool(FreeFallHash, _targetFreeFall);
+                Vector3 targetPos = posData.ToVector3();
+                remote.GameObject.transform.position = Vector3.Lerp(
+                    remote.GameObject.transform.position,
+                    targetPos,
+                    Time.deltaTime * 10f);
             }
         }
     }
+
+    public void ApplyServerPositions()
+    {
+        if (_latestSnapshot == null || _remotePlayers.Count == 0) return;
+
+        foreach (var kvp in _remotePlayers)
+        {
+            string id = kvp.Key;
+            Managers.RemotePlayer remote = kvp.Value;
+            if (_latestSnapshot.Positions.TryGetValue(id, out var posData))
+            {
+                remote.GameObject.transform.position = posData.ToVector3();
+                if (_latestSnapshot.Rotations.TryGetValue(id, out var rotData))
+                {
+                    remote.GameObject.transform.rotation = rotData.ToQuaternion();
+                }
+            }
+        }
+    }
+
+#if UNITY_EDITOR
+    private bool TagExists(string tag)
+    {
+        return Array.Exists(UnityEditorInternal.InternalEditorUtility.tags, t => t == tag);
+    }
+#endif
 }

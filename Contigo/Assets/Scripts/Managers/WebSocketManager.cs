@@ -12,6 +12,8 @@ namespace Managers
     {
         private WebSocket _websocket;
         private readonly string _serverUri;
+        private bool _isClosing = false;
+
         public event Action<string> OnIdReceived;
         public event Action<Snapshot> OnSnapshotReceived;
 
@@ -25,7 +27,13 @@ namespace Managers
             _websocket.OnError += (error) => Debug.LogError($"WebSocket error: {error}");
         }
 
-        public async Task ConnectAsync() => await _websocket.Connect();
+        public async Task ConnectAsync()
+        {
+            if (_websocket.State == WebSocketState.Closed) // Fixed: Removed None
+            {
+                await _websocket.Connect();
+            }
+        }
 
         public async void SendMessage(string message)
         {
@@ -35,8 +43,9 @@ namespace Managers
 
         private void OnMessageReceived(byte[] bytes)
         {
+            if (_isClosing) return;
             string json = System.Text.Encoding.UTF8.GetString(bytes);
-            Debug.Log($"Received message: {json}");
+            Debug.Log($"Received message at {Time.time}: {json}");
             var dict = JsonConvert.DeserializeObject<Dictionary<string, object>>(json);
             if (dict != null && dict.TryGetValue("type", out object typeObj) && typeObj.ToString() == "ID")
             {
@@ -52,13 +61,29 @@ namespace Managers
             }
         }
 
-        public void DispatchMessageQueue() => _websocket?.DispatchMessageQueue();
-        public void Close() => _websocket?.Close();
-    }
+        public void DispatchMessageQueue()
+        {
+            if (_isClosing) return;
+#if UNITY_EDITOR || !UNITY_WEBGL
+            _websocket?.DispatchMessageQueue();
+#endif
+        }
 
-    public class IdMessage
-    {
-        public string type { get; set; }
-        public string id { get; set; }
+        public void Close()
+        {
+            if (_websocket != null && !_isClosing)
+            {
+                _isClosing = true;
+                _websocket.Close();
+                _websocket = null;
+            }
+        }
+
+        // Nested class for ID message deserialization
+        public class IdMessage
+        {
+            public string type { get; set; }
+            public string id { get; set; }
+        }
     }
 }
