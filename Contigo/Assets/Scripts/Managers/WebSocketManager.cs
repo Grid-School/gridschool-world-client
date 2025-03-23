@@ -36,10 +36,12 @@ namespace Managers
         private void OnMessageReceived(byte[] bytes)
         {
             string json = System.Text.Encoding.UTF8.GetString(bytes);
+            Debug.Log($"Received message: {json}");
             var dict = JsonConvert.DeserializeObject<Dictionary<string, object>>(json);
             if (dict != null && dict.TryGetValue("type", out object typeObj) && typeObj.ToString() == "ID")
             {
                 var idMsg = JsonConvert.DeserializeObject<IdMessage>(json);
+                Debug.Log($"Deserialized IdMessage: type={idMsg.type}, id={idMsg.id}");
                 OnIdReceived?.Invoke(idMsg.id);
             }
             else
