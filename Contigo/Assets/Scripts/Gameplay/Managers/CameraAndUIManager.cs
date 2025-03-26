@@ -15,7 +15,7 @@ namespace Gameplay.Managers
                 var cameraController = mainCamera.GetComponent<CameraController>();
                 if (cameraController != null && playerManager.LocalPlayer != null)
                 {
-                    cameraController.target = playerManager.LocalPlayer.transform;
+                    cameraController.playerTransform = playerManager.LocalPlayer.transform;
                     Debug.Log($"Set CameraController target to {playerManager.LocalPlayer.name}");
                 }
             }

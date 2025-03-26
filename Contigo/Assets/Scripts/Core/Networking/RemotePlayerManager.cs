@@ -20,10 +20,10 @@ namespace Core.Networking
         {
             public Vector3 PreviousPosition;
             public Quaternion PreviousRotation;
-            public InkaAnimationState PreviousAnimState; // Updated to InkaAnimationState
+            public InkaAnimationState PreviousAnimState;
             public Vector3 CurrentPosition;
             public Quaternion CurrentRotation;
-            public InkaAnimationState CurrentAnimState; // Updated to InkaAnimationState
+            public InkaAnimationState CurrentAnimState;
             public float Timestamp;
             public float LerpTime;
         }
@@ -31,9 +31,9 @@ namespace Core.Networking
         public RemotePlayerManager(GameObject prefab)
         {
             _playerPrefab = prefab;
-            _remotePlayers = new Dictionary<string, RemotePlayer>(); // Initialize
-            _remoteVerticalVelocities = new Dictionary<string, float>(); // Initialize
-            _snapshotBuffers = new Dictionary<string, SnapshotBuffer>(); // Initialize
+            _remotePlayers = new Dictionary<string, RemotePlayer>();
+            _remoteVerticalVelocities = new Dictionary<string, float>();
+            _snapshotBuffers = new Dictionary<string, SnapshotBuffer>();
         }
 
         public void StoreSnapshot(Snapshot snapshot, string localId)
@@ -76,8 +76,8 @@ namespace Core.Networking
                         CurrentPosition = kvp.Value.ToVector3(),
                         PreviousRotation = Quaternion.identity,
                         CurrentRotation = Quaternion.identity,
-                        PreviousAnimState = new InkaAnimationState(), // Updated to InkaAnimationState
-                        CurrentAnimState = new InkaAnimationState(), // Updated to InkaAnimationState
+                        PreviousAnimState = new InkaAnimationState(),
+                        CurrentAnimState = new InkaAnimationState(),
                         Timestamp = Time.time,
                         LerpTime = 0.05f
                     };
@@ -146,6 +146,19 @@ namespace Core.Networking
                     float speed = Mathf.Lerp(buffer.PreviousAnimState.Speed, buffer.CurrentAnimState.Speed, t);
                     float motionSpeed = Mathf.Lerp(buffer.PreviousAnimState.MotionSpeed,
                         buffer.CurrentAnimState.MotionSpeed, t);
+
+                    // Adjust speed to ensure running animation triggers
+                    // PlayerController uses MoveSpeed (2.0) and SprintSpeed (5.335)
+                    // Ensure the Speed parameter reflects this for remote players
+                    if (speed > 2.5f) // Threshold between walking and running
+                    {
+                        speed = Mathf.Clamp(speed, 0f, 5.335f); // Match SprintSpeed
+                    }
+                    else
+                    {
+                        speed = Mathf.Clamp(speed, 0f, 2.0f); // Match MoveSpeed
+                    }
+
                     animator.SetFloat("Speed", speed);
                     animator.SetFloat("MotionSpeed", motionSpeed);
                     animator.SetBool("Jump", buffer.CurrentAnimState.Jump);
@@ -172,7 +185,17 @@ namespace Core.Networking
                     Animator animator = remote.GameObject.GetComponent<Animator>();
                     if (animator != null)
                     {
-                        animator.SetFloat("Speed", buffer.CurrentAnimState.Speed);
+                        float speed = buffer.CurrentAnimState.Speed;
+                        if (speed > 2.5f)
+                        {
+                            speed = Mathf.Clamp(speed, 0f, 5.335f);
+                        }
+                        else
+                        {
+                            speed = Mathf.Clamp(speed, 0f, 2.0f);
+                        }
+
+                        animator.SetFloat("Speed", speed);
                         animator.SetFloat("MotionSpeed", buffer.CurrentAnimState.MotionSpeed);
                         animator.SetBool("Jump", buffer.CurrentAnimState.Jump);
                         animator.SetBool("Grounded", buffer.CurrentAnimState.Grounded);

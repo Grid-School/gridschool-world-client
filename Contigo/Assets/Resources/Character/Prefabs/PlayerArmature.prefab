@@ -1836,6 +1836,7 @@ GameObject:
   - component: {fileID: 9094401261390489294}
   - component: {fileID: 4602483880915038937}
   - component: {fileID: 3921914009692757270}
+  - component: {fileID: 7865726065412604078}
   - component: {fileID: 9093363753412709122}
   - component: {fileID: 8224518066378579236}
   - component: {fileID: 5614577295194907945}
@@ -1911,6 +1912,18 @@ CharacterController:
   m_SkinWidth: 0.02
   m_MinMoveDistance: 0
   m_Center: {x: 0, y: 0.93, z: 0}
+--- !u!114 &7865726065412604078
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5495727609465418701}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: bc1cf1e105704e81934f1fec0162d715, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
 --- !u!114 &9093363753412709122
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1940,7 +1953,7 @@ MonoBehaviour:
   - {fileID: 8300000, guid: 274649b0e221539409070ebf6c18918b, type: 3}
   - {fileID: 8300000, guid: a3194b8bbc96ef84fab1f98f4b7dae3e, type: 3}
   FootstepAudioVolume: 0.3
-  JumpHeight: 1.2
+  JumpHeight: 3
   Gravity: -15
   JumpTimeout: 0.3
   FallTimeout: 0.15
@@ -1950,11 +1963,6 @@ MonoBehaviour:
   GroundLayers:
     serializedVersion: 2
     m_Bits: 1
-  CinemachineCameraTarget: {fileID: 0}
-  TopClamp: 70
-  BottomClamp: -30
-  CameraAngleOverride: 0
-  LockCameraPosition: 0
 --- !u!114 &8224518066378579236
 MonoBehaviour:
   m_ObjectHideFlags: 0

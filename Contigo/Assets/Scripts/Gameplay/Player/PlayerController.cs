@@ -32,7 +32,7 @@ namespace Gameplay.Player
 
         [Space(10)]
         [Tooltip("The height the player can jump")]
-        public float JumpHeight = 1.8f;
+        public float JumpHeight = 4.8f;
 
         [Tooltip("The character uses its own gravity value. The engine default is -9.81f")]
         public float Gravity = -15.0f;
@@ -81,11 +81,11 @@ namespace Gameplay.Player
 #endif
         private Animator _animator;
         private CharacterController _controller;
-        private PlayerCharacterInput _input; // Now resolves with using StarterAssets
+        private PlayerCharacterInput _input;
         private GameObject _mainCamera;
 
         private bool _hasAnimator;
-        private bool _isRemotePlayer; // Flag to disable local logic
+        private bool _isRemotePlayer;
 
         // Public properties
         public bool IsJumping { get; private set; }
@@ -110,16 +110,15 @@ namespace Gameplay.Player
             {
                 _mainCamera = GameObject.FindGameObjectWithTag("MainCamera");
             }
-            _isRemotePlayer = gameObject.tag == "RemotePlayer"; // Set based on tag
+            _isRemotePlayer = gameObject.tag == "RemotePlayer";
 
-            // Initialize components even for remote players to avoid null refs in Animation Events
             _controller = GetComponent<CharacterController>();
             _hasAnimator = TryGetComponent(out _animator);
         }
 
         private void Start()
         {
-            if (_isRemotePlayer) return; // Skip local logic for remote players
+            if (_isRemotePlayer) return;
 
             _input = GetComponent<PlayerCharacterInput>();
 #if ENABLE_INPUT_SYSTEM 
@@ -151,7 +150,7 @@ namespace Gameplay.Player
 
         private void Update()
         {
-            if (_isRemotePlayer) return; // Skip for remote players
+            if (_isRemotePlayer) return;
 
             JumpAndGravity();
             GroundedCheck();
@@ -184,14 +183,15 @@ namespace Gameplay.Player
         {
             if (_input == null || _controller == null) return;
 
+            // Determine target speed based on sprint state
             float targetSpeed = _input.sprint ? SprintSpeed : MoveSpeed;
             if (_input.move == Vector2.zero) targetSpeed = 0.0f;
 
             float currentHorizontalSpeed = new Vector3(_controller.velocity.x, 0.0f, _controller.velocity.z).magnitude;
-
             float speedOffset = 0.1f;
             float inputMagnitude = _input.analogMovement ? _input.move.magnitude : 1f;
 
+            // Smoothly adjust the current speed toward the target speed
             if (currentHorizontalSpeed < targetSpeed - speedOffset || currentHorizontalSpeed > targetSpeed + speedOffset)
             {
                 _speed = Mathf.Lerp(currentHorizontalSpeed, targetSpeed * inputMagnitude, Time.deltaTime * SpeedChangeRate);
@@ -202,39 +202,51 @@ namespace Gameplay.Player
                 _speed = targetSpeed;
             }
 
+            // Update the animation blend value (used by the Animator)
             _animationBlend = Mathf.Lerp(_animationBlend, targetSpeed, Time.deltaTime * SpeedChangeRate);
             if (_animationBlend < 0.01f) _animationBlend = 0f;
 
-            Vector3 inputDirection = new Vector3(_input.move.x, 0.0f, _input.move.y).normalized;
-
+            Vector3 movement = Vector3.zero;
+            // Only process movement if there is input
             if (_input.move != Vector2.zero)
             {
-                if (_mainCamera != null)
+                // If moving forward (or purely sideways), update rotation relative to camera
+                if (_input.move.y >= 0)
                 {
-                    _targetRotation = Mathf.Atan2(inputDirection.x, inputDirection.z) * Mathf.Rad2Deg +
-                                      _mainCamera.transform.eulerAngles.y;
+                    // Compute the input direction (this is in local camera space)
+                    Vector3 inputDirection = new Vector3(_input.move.x, 0.0f, _input.move.y).normalized;
+                    float targetAngle = Mathf.Atan2(inputDirection.x, inputDirection.z) * Mathf.Rad2Deg;
+                    // Add the camera's current Y rotation if available
+                    _targetRotation = (_mainCamera != null ? _mainCamera.transform.eulerAngles.y : 0f) + targetAngle;
+                    float rotation = Mathf.SmoothDampAngle(transform.eulerAngles.y, _targetRotation, ref _rotationVelocity, RotationSmoothTime);
+                    transform.rotation = Quaternion.Euler(0.0f, rotation, 0.0f);
+
+                    // Movement is in the forward direction based on the new rotation
+                    Vector3 targetDirection = Quaternion.Euler(0.0f, _targetRotation, 0.0f) * Vector3.forward;
+                    movement = targetDirection.normalized;
                 }
+                // For backward movement, do not update the rotation so the character keeps facing forward
                 else
                 {
-                    _targetRotation = Mathf.Atan2(inputDirection.x, inputDirection.z) * Mathf.Rad2Deg;
+                    // Construct the backward input vector.
+                    // _input.move.y is negative here. We combine the horizontal input (if any)
+                    // with the backwards direction (i.e. negative transform.forward).
+                    Vector3 backwardInput = new Vector3(_input.move.x, 0.0f, _input.move.y);
+                    movement = (transform.right * backwardInput.x - transform.forward * Mathf.Abs(backwardInput.z)).normalized;
                 }
-                float rotation = Mathf.SmoothDampAngle(transform.eulerAngles.y, _targetRotation, ref _rotationVelocity,
-                    RotationSmoothTime);
-
-                transform.rotation = Quaternion.Euler(0.0f, rotation, 0.0f);
             }
 
-            Vector3 targetDirection = Quaternion.Euler(0.0f, _targetRotation, 0.0f) * Vector3.forward;
+            // Move the character controller based on the computed movement and vertical velocity
+            _controller.Move(movement * (_speed * Time.deltaTime) + new Vector3(0.0f, _verticalVelocity, 0.0f) * Time.deltaTime);
 
-            _controller.Move(targetDirection.normalized * (_speed * Time.deltaTime) +
-                             new Vector3(0.0f, _verticalVelocity, 0.0f) * Time.deltaTime);
-
+            // Update Animator parameters
             if (_hasAnimator && _animator != null)
             {
                 _animator.SetFloat(_animIDSpeed, _animationBlend);
                 _animator.SetFloat(_animIDMotionSpeed, inputMagnitude);
             }
         }
+
 
         private void JumpAndGravity()
         {
@@ -315,7 +327,7 @@ namespace Gameplay.Player
 
         private void OnFootstep(AnimationEvent animationEvent)
         {
-            if (_isRemotePlayer || _controller == null) return; // Skip for remote or uninitialized
+            if (_isRemotePlayer || _controller == null) return;
 
             if (animationEvent.animatorClipInfo.weight > 0.5f)
             {
@@ -333,7 +345,7 @@ namespace Gameplay.Player
 
         private void OnLand(AnimationEvent animationEvent)
         {
-            if (_isRemotePlayer || _controller == null) return; // Skip for remote or uninitialized
+            if (_isRemotePlayer || _controller == null) return;
 
             if (animationEvent.animatorClipInfo.weight > 0.5f)
             {

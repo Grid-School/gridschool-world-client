@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 using System.Threading.Tasks;
 using Core.Data.ClientPlayerData;
@@ -13,7 +15,8 @@ namespace Core.Networking
 {
     public class WebSocketPlayerController : MonoBehaviour
     {
-        [SerializeField] private string serverUri = "ws://localhost:6000/ws";
+        // [SerializeField] private string serverUri = "ws://localhost:6000/ws";
+        [SerializeField] private string serverUri = "wss://inkaverse.co/ws";
         [SerializeField] private GameObject playerPrefab;
         [SerializeField] private float serverTimestep = 0.05f;
 
@@ -28,6 +31,8 @@ namespace Core.Networking
         private PlayerCharacterInput _localInputs;
         private Snapshot _latestSnapshot;
         private bool _isDestroyed = false;
+        
+        private List<SnapshotEntry> _localHistory = new List<SnapshotEntry>();
 
         private void Awake()
         {
@@ -36,6 +41,7 @@ namespace Core.Networking
 
         private async void Start()
         {
+            Console.WriteLine("weeeee lets gooooo");
             Application.runInBackground = true;
             QualitySettings.vSyncCount = 0;
             Application.targetFrameRate = 60;
@@ -106,7 +112,7 @@ namespace Core.Networking
                 var cameraController = mainCamera.GetComponent<CameraController>();
                 if (cameraController != null)
                 {
-                    cameraController.target = _localPlayer.transform;
+                    cameraController.playerTransform = _localPlayer.transform;
                     Debug.Log($"Set CameraController target to {_localPlayer.name}", this);
                 }
             }
@@ -161,6 +167,15 @@ namespace Core.Networking
             {
                 SendPlayerData();
                 _remoteManager?.ApplyServerPositions();
+
+                // Store local state
+                _localHistory.Add(new SnapshotEntry
+                {
+                    Timestamp = (long)Time.time,
+                    Position = _localPlayer.transform.position,
+                    Velocity = _localController.CurrentSpeed * transform.forward
+                });
+                if (_localHistory.Count > 100) _localHistory.RemoveAt(0); // Limit buffer size
             }
         }
 
@@ -169,7 +184,6 @@ namespace Core.Networking
             if (_localInputs != null)
             {
                 _localInputs.jump = false;
-                _localInputs.sprint = false;
             }
         }
 
@@ -202,13 +216,13 @@ namespace Core.Networking
             Debug.Log($"Snapshot received at {Time.time:F3}s");
             _latestSnapshot = snapshot;
 
-            if (_localPlayer != null && _localPlayer.transform.position == new Vector3(0, 1, 0))
+            if (_localPlayer != null && snapshot.Positions.ContainsKey(_localId))
             {
-                if (snapshot.Positions.ContainsKey(_localId))
+                Vector3 serverPos = snapshot.Positions[_localId].ToVector3();
+                var closestEntry = _localHistory.OrderBy(e => Mathf.Abs(e.Timestamp - snapshot.Timestamp / 10000000f)).FirstOrDefault();
+                if (closestEntry.Position != Vector3.zero && Vector3.Distance(closestEntry.Position, serverPos) > 0.1f)
                 {
-                    Vector3 spawnPos = snapshot.Positions[_localId].ToVector3();
-                    _localPlayer.transform.position = spawnPos;
-                    Debug.Log($"Set local player position to: {spawnPos}");
+                    _localPlayer.transform.position = Vector3.Lerp(_localPlayer.transform.position, serverPos, 0.1f);
                 }
             }
 
