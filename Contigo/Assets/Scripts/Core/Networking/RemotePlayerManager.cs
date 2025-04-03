@@ -13,7 +13,6 @@ namespace Core.Networking
     {
         private Dictionary<string, RemotePlayer> _remotePlayers;
         private GameObject _playerPrefab;
-        private Dictionary<string, float> _remoteVerticalVelocities;
         private Dictionary<string, SnapshotBuffer> _snapshotBuffers;
 
         private class SnapshotBuffer
@@ -32,13 +31,17 @@ namespace Core.Networking
         {
             _playerPrefab = prefab;
             _remotePlayers = new Dictionary<string, RemotePlayer>();
-            _remoteVerticalVelocities = new Dictionary<string, float>();
             _snapshotBuffers = new Dictionary<string, SnapshotBuffer>();
         }
 
         public void StoreSnapshot(Snapshot snapshot, string localId)
         {
-            // Remove players that are no longer in the snapshot
+            Debug.Log($"[RemotePlayerManager] Storing snapshot with {snapshot.Positions.Count} players at {Time.time}");
+            foreach (var kvp in snapshot.Positions)
+            {
+                Debug.Log($"Player {kvp.Key}: Position ({kvp.Value.X}, {kvp.Value.Y}, {kvp.Value.Z})");
+            }
+
             var removeKeys = _remotePlayers.Keys.Where(id => !snapshot.Positions.ContainsKey(id)).ToList();
             foreach (var id in removeKeys)
             {
@@ -47,11 +50,10 @@ namespace Core.Networking
                 else
                     Object.Destroy(_remotePlayers[id].GameObject);
                 _remotePlayers.Remove(id);
-                _remoteVerticalVelocities.Remove(id);
                 _snapshotBuffers.Remove(id);
+                Debug.Log($"[RemotePlayerManager] Removed player {id}");
             }
 
-            // Add new remote players
             foreach (var kvp in snapshot.Positions)
             {
                 if (kvp.Key == localId) continue;
@@ -63,8 +65,18 @@ namespace Core.Networking
 #else
                     remoteObj.tag = "RemotePlayer";
 #endif
+                    remoteObj.layer = LayerMask.NameToLayer("RemotePlayer");
                     var controller = remoteObj.GetComponent<PlayerController>();
-                    if (controller != null) controller.enabled = false;
+                    if (controller != null)
+                    {
+                        controller.enabled = false;
+                        Debug.Log($"[RemotePlayerManager] Disabled PlayerController for {kvp.Key}");
+                    }
+                    var charController = remoteObj.GetComponent<CharacterController>();
+                    if (charController != null)
+                    {
+                        Debug.Log($"[RemotePlayerManager] CharacterController kept enabled for {kvp.Key}");
+                    }
                     var inputs = remoteObj.GetComponent<PlayerCharacterInput>();
                     if (inputs != null) inputs.enabled = false;
                     else Debug.LogWarning($"PlayerCharacterInput not found on remote player {kvp.Key}.");
@@ -79,12 +91,12 @@ namespace Core.Networking
                         PreviousAnimState = new InkaAnimationState(),
                         CurrentAnimState = new InkaAnimationState(),
                         Timestamp = Time.time,
-                        LerpTime = 0.05f
+                        LerpTime = 0.1f // Matches server 20 Hz (0.05s) roughly
                     };
+                    Debug.Log($"[RemotePlayerManager] Added new player {kvp.Key} at {kvp.Value.ToVector3()}");
                 }
             }
 
-            // Update snapshot buffer for existing players
             foreach (var kvp in snapshot.Positions)
             {
                 if (kvp.Key == localId || !_snapshotBuffers.ContainsKey(kvp.Key)) continue;
@@ -101,12 +113,14 @@ namespace Core.Networking
                     ? animState
                     : buffer.CurrentAnimState;
                 buffer.Timestamp = Time.time;
+                Debug.Log($"[RemotePlayerManager] Updated buffer for {kvp.Key}: New Pos={buffer.CurrentPosition}");
             }
         }
 
         public void InterpolateRemotePlayers()
         {
             if (_remotePlayers.Count == 0) return;
+            Debug.Log($"[RemotePlayerManager] Interpolating {_remotePlayers.Count} players at {Time.time}");
 
             foreach (var kvp in _remotePlayers)
             {
@@ -121,44 +135,19 @@ namespace Core.Networking
                 Vector3 currentPos = remote.GameObject.transform.position;
                 Vector3 targetPos = Vector3.Lerp(buffer.PreviousPosition, buffer.CurrentPosition, t);
                 float x = Mathf.Lerp(currentPos.x, targetPos.x, Time.deltaTime * lerpSpeed);
+                float y = Mathf.Lerp(currentPos.y, targetPos.y, Time.deltaTime * lerpSpeed); // Use snapshot Y directly
                 float z = Mathf.Lerp(currentPos.z, targetPos.z, Time.deltaTime * lerpSpeed);
-                float y = currentPos.y;
 
-                if (buffer.CurrentAnimState.Jump && !buffer.CurrentAnimState.Grounded)
-                {
-                    if (!_remoteVerticalVelocities.ContainsKey(id))
-                        _remoteVerticalVelocities[id] = Mathf.Sqrt(1.2f * -2f * -15f);
-                    y += _remoteVerticalVelocities[id] * Time.deltaTime;
-                    _remoteVerticalVelocities[id] += -15f * Time.deltaTime;
-                }
-                else if (buffer.CurrentAnimState.Grounded)
-                {
-                    y = Mathf.Lerp(currentPos.y, targetPos.y, Time.deltaTime * lerpSpeed);
-                    _remoteVerticalVelocities[id] = 0f;
-                }
+                Vector3 newPosition = new Vector3(x, y, z);
+                remote.GameObject.transform.position = newPosition;
+                remote.GameObject.transform.rotation = Quaternion.Slerp(buffer.PreviousRotation, buffer.CurrentRotation, t);
 
-                remote.GameObject.transform.position = new Vector3(x, y, z);
-                remote.GameObject.transform.rotation =
-                    Quaternion.Slerp(buffer.PreviousRotation, buffer.CurrentRotation, t);
+                Debug.Log($"Player {id}: t={t}, Timestamp={buffer.Timestamp}, PrevPos={buffer.PreviousPosition}, CurrPos={buffer.CurrentPosition}, NewPos={newPosition}, Jump={buffer.CurrentAnimState.Jump}, Grounded={buffer.CurrentAnimState.Grounded}, FreeFall={buffer.CurrentAnimState.FreeFall}");
 
                 if (animator != null)
                 {
                     float speed = Mathf.Lerp(buffer.PreviousAnimState.Speed, buffer.CurrentAnimState.Speed, t);
-                    float motionSpeed = Mathf.Lerp(buffer.PreviousAnimState.MotionSpeed,
-                        buffer.CurrentAnimState.MotionSpeed, t);
-
-                    // Adjust speed to ensure running animation triggers
-                    // PlayerController uses MoveSpeed (2.0) and SprintSpeed (5.335)
-                    // Ensure the Speed parameter reflects this for remote players
-                    if (speed > 2.5f) // Threshold between walking and running
-                    {
-                        speed = Mathf.Clamp(speed, 0f, 5.335f); // Match SprintSpeed
-                    }
-                    else
-                    {
-                        speed = Mathf.Clamp(speed, 0f, 2.0f); // Match MoveSpeed
-                    }
-
+                    float motionSpeed = Mathf.Lerp(buffer.PreviousAnimState.MotionSpeed, buffer.CurrentAnimState.MotionSpeed, t);
                     animator.SetFloat("Speed", speed);
                     animator.SetFloat("MotionSpeed", motionSpeed);
                     animator.SetBool("Jump", buffer.CurrentAnimState.Jump);
@@ -180,22 +169,11 @@ namespace Core.Networking
                 {
                     remote.GameObject.transform.position = buffer.CurrentPosition;
                     remote.GameObject.transform.rotation = buffer.CurrentRotation;
-                    _remoteVerticalVelocities[id] = 0f;
 
                     Animator animator = remote.GameObject.GetComponent<Animator>();
                     if (animator != null)
                     {
-                        float speed = buffer.CurrentAnimState.Speed;
-                        if (speed > 2.5f)
-                        {
-                            speed = Mathf.Clamp(speed, 0f, 5.335f);
-                        }
-                        else
-                        {
-                            speed = Mathf.Clamp(speed, 0f, 2.0f);
-                        }
-
-                        animator.SetFloat("Speed", speed);
+                        animator.SetFloat("Speed", buffer.CurrentAnimState.Speed);
                         animator.SetFloat("MotionSpeed", buffer.CurrentAnimState.MotionSpeed);
                         animator.SetBool("Jump", buffer.CurrentAnimState.Jump);
                         animator.SetBool("Grounded", buffer.CurrentAnimState.Grounded);

@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Text;
 using System.Threading.Tasks;
-using Core.Data.ClientPlayerData;
 using NativeWebSocket;
 using Newtonsoft.Json;
 using UnityEngine;
@@ -15,21 +15,22 @@ namespace Core.Networking
         private bool _isClosing = false;
 
         public event Action<string> OnIdReceived;
-        public event Action<Snapshot> OnSnapshotReceived;
+        public event Action<Core.Data.ClientPlayerData.Snapshot> OnSnapshotReceived;
 
-        public WebSocketManager(string serverUri)
+        public WebSocketManager(string serverUri) 
         {
             _serverUri = serverUri;
             _websocket = new WebSocket(_serverUri);
-            _websocket.OnOpen += () => Debug.Log("Connected to server");
+            _websocket.OnOpen += () => LogHelper.Log($"[WebSocketManager.cs] Connected to server at {_serverUri}");
             _websocket.OnMessage += OnMessageReceived;
-            _websocket.OnClose += (code) => Debug.Log($"WebSocket closed: {code}");
-            _websocket.OnError += (error) => Debug.LogError($"WebSocket error: {error}");
+            _websocket.OnClose += (code) => LogHelper.LogWarning($"[WebSocketManager.cs] WebSocket closed: {code}");
+            _websocket.OnError += (error) => LogHelper.LogError($"[WebSocketManager.cs] WebSocket error: {error}");
         }
 
         public async Task ConnectAsync()
         {
-            if (_websocket.State == WebSocketState.Closed) // Fixed: Removed None
+            LogHelper.Log($"[WebSocketManager.cs] ConnectAsync called.");
+            if (_websocket.State == WebSocketState.Closed)
             {
                 await _websocket.Connect();
             }
@@ -38,24 +39,25 @@ namespace Core.Networking
         public async void SendMessage(string message)
         {
             if (_websocket != null && _websocket.State == WebSocketState.Open)
+            {
                 await _websocket.SendText(message);
+            }
         }
 
         private void OnMessageReceived(byte[] bytes)
         {
             if (_isClosing) return;
-            string json = System.Text.Encoding.UTF8.GetString(bytes);
-            Debug.Log($"Received message at {Time.time}: {json}");
+            string json = Encoding.UTF8.GetString(bytes);
+
             var dict = JsonConvert.DeserializeObject<Dictionary<string, object>>(json);
             if (dict != null && dict.TryGetValue("type", out object typeObj) && typeObj.ToString() == "ID")
             {
                 var idMsg = JsonConvert.DeserializeObject<IdMessage>(json);
-                Debug.Log($"Deserialized IdMessage: type={idMsg.type}, id={idMsg.id}");
                 OnIdReceived?.Invoke(idMsg.id);
             }
             else
             {
-                var snapshot = JsonConvert.DeserializeObject<Snapshot>(json);
+                var snapshot = JsonConvert.DeserializeObject<Core.Data.ClientPlayerData.Snapshot>(json);
                 if (snapshot != null)
                     OnSnapshotReceived?.Invoke(snapshot);
             }
@@ -76,10 +78,10 @@ namespace Core.Networking
                 _isClosing = true;
                 _websocket.Close();
                 _websocket = null;
+                LogHelper.Log("[WebSocketManager.cs] WebSocket closed.");
             }
         }
 
-        // Nested class for ID message deserialization
         public class IdMessage
         {
             public string type { get; set; }

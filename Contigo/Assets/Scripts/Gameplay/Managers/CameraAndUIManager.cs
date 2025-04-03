@@ -1,36 +1,59 @@
-using Core.Input;
-using InkaCamera;
 using UnityEngine;
-using StarterAssets;
+using Gameplay.Managers;
+using InkaCamera;
 
-namespace Gameplay.Managers
+public class CameraAndUIManager : MonoBehaviour
 {
-    public class CameraAndUIManager
+    private void Start()
     {
-        public void Setup(PlayerManager playerManager)
+        if (PlayerManager.Instance != null)
         {
-            var mainCamera = Camera.main;
-            if (mainCamera != null)
+            PlayerManager.Instance.OnLocalPlayerSpawned += OnLocalPlayerSpawned;
+            Debug.Log("[CameraAndUIManager] Subscribed to OnLocalPlayerSpawned.");
+            // Check if player is already spawned
+            if (PlayerManager.Instance.LocalPlayer != null)
             {
-                var cameraController = mainCamera.GetComponent<CameraController>();
-                if (cameraController != null && playerManager.LocalPlayer != null)
-                {
-                    cameraController.playerTransform = playerManager.LocalPlayer.transform;
-                    Debug.Log($"Set CameraController target to {playerManager.LocalPlayer.name}");
-                }
+                OnLocalPlayerSpawned(PlayerManager.Instance.LocalPlayer.GetComponentInChildren<Core.Input.PlayerCharacterInput>());
             }
+            else
+            {
+                Debug.Log("[CameraAndUIManager] LocalPlayer not yet spawned at Start.");
+            }
+        }
+        else
+        {
+            Debug.LogError("[CameraAndUIManager] PlayerManager.Instance is null at Start!");
+        }
+    }
 
-            var uiCanvas = GameObject.Find("UI_Canvas_StarterAssetsInputs_Joysticks");
-            if (uiCanvas != null)
+    private void OnDestroy()
+    {
+        if (PlayerManager.Instance != null)
+        {
+            PlayerManager.Instance.OnLocalPlayerSpawned -= OnLocalPlayerSpawned;
+            Debug.Log("[CameraAndUIManager] Unsubscribed from OnLocalPlayerSpawned.");
+        }
+    }
+
+    private void OnLocalPlayerSpawned(Core.Input.PlayerCharacterInput input)
+    {
+        var cam = Camera.main;
+        if (cam != null)
+        {
+            var controller = cam.GetComponent<CameraController>();
+            if (controller != null && PlayerManager.Instance.LocalPlayer != null)
             {
-                var uiController = uiCanvas.GetComponent<UICanvasControllerInput>();
-                var inputs = playerManager.LocalPlayer?.GetComponent<PlayerCharacterInput>();
-                if (uiController != null && inputs != null)
-                {
-                    uiController.starterAssetsInputs = inputs;
-                    Debug.Log("Connected UI canvas to StarterAssetsInputs");
-                }
+                controller.playerTransform = PlayerManager.Instance.LocalPlayer.transform;
+                Debug.Log($"[CameraAndUIManager] Camera target set to {PlayerManager.Instance.LocalPlayer.name} at position: {controller.playerTransform.position}");
             }
+            else
+            {
+                Debug.LogWarning($"[CameraAndUIManager] Failed to set camera target. Controller: {(controller == null ? "null" : "exists")}, LocalPlayer: {(PlayerManager.Instance.LocalPlayer == null ? "null" : "exists")}");
+            }
+        }
+        else
+        {
+            Debug.LogWarning("[CameraAndUIManager] Main camera not found.");
         }
     }
 }

@@ -1,244 +1,60 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using UnityEngine;
+using Gameplay.Managers;
 using System.Threading.Tasks;
-using Core.Data.ClientPlayerData;
-using Core.Input;
-using Gameplay.Player;
-using StarterAssets;
-using UnityEngine.UI;
-using Newtonsoft.Json;
-using InkaCamera;
+using System;
 
-namespace Core.Networking 
+namespace Core.Networking
 {
     public class WebSocketPlayerController : MonoBehaviour
     {
-        // [SerializeField] private string serverUri = "ws://localhost:6000/ws";
-        [SerializeField] private string serverUri = "wss://inkaverse.co/ws";
-        [SerializeField] private GameObject playerPrefab;
-        [SerializeField] private float serverTimestep = 0.05f;
-
-        [SerializeField] private Button jumpButton;
-        [SerializeField] private Button sprintButton;
-
-        private WebSocketManager _networkManager;
-        private RemotePlayerManager _remoteManager;
-        private string _localId;
-        private GameObject _localPlayer;
-        private PlayerController _localController;
-        private PlayerCharacterInput _localInputs;
-        private Snapshot _latestSnapshot;
+        private InkaNetworkManager _networkManager;
         private bool _isDestroyed = false;
-        
-        private List<SnapshotEntry> _localHistory = new List<SnapshotEntry>();
 
-        private void Awake()
+        private void Start()
         {
-            DontDestroyOnLoad(gameObject); // Prevent MPPM from destroying prematurely
-        }
+            Debug.Log("Starting WebSocketPlayerController");
 
-        private async void Start()
-        {
-            Console.WriteLine("weeeee lets gooooo");
-            Application.runInBackground = true;
-            QualitySettings.vSyncCount = 0;
-            Application.targetFrameRate = 60;
-            Time.fixedDeltaTime = serverTimestep;
-
-            if (playerPrefab == null)
+            if (GameInitializer.NetworkManagerInstance != null)
             {
-                Debug.LogError("Player Prefab is not assigned!", this);
-                return;
+                _networkManager = GameInitializer.NetworkManagerInstance;
+                _networkManager.OnIdReceived += OnIdReceived;
+                Debug.Log("Using GameInitializer's NetworkManager in WebSocketPlayerController");
             }
-
-            _networkManager = new WebSocketManager(serverUri);
-            _remoteManager = new RemotePlayerManager(playerPrefab);
-
-            _networkManager.OnIdReceived += OnIdReceived;
-            _networkManager.OnSnapshotReceived += OnSnapshotReceived;
-
-            Debug.Log($"Player instance starting: {gameObject.name}", this);
-            await ConnectWebSocketAsync();
-            // Remove single DispatchMessageQueue here; move to FixedUpdate
-        }
-        
-        private async Task ConnectWebSocketAsync()
-        {
-            try
+            else
             {
-                await _networkManager.ConnectAsync();
-                Debug.Log("WebSocket connected.");
-            }
-            catch (Exception e)
-            {
-                Debug.LogError($"Failed to connect to WebSocket: {e.Message}");
+                Debug.LogError("[WebSocketPlayerController] NetworkManagerInstance not found, cannot initialize network!");
             }
         }
 
         private void OnIdReceived(string id)
         {
-            if (_isDestroyed || !gameObject.activeInHierarchy)
+            if (_isDestroyed || !gameObject.activeInHierarchy) return;
+            Debug.Log($"OnIdReceived called with ID: {id} on {gameObject.name}");
+
+            if (GameInitializer.PlayerManagerInstance == null)
             {
-                Debug.LogWarning($"OnIdReceived ignored: Controller destroyed or inactive for {gameObject.name}");
+                Debug.LogError("[WebSocketPlayerController] PlayerManagerInstance is null! Cannot spawn player.");
                 return;
             }
-
-            Debug.Log($"OnIdReceived called with ID: {id} on {gameObject.name}", this);
-            _localId = id;
-            if (_localPlayer == null)
-            {
-                _localPlayer = Instantiate(playerPrefab, new Vector3(0, 1, 0), Quaternion.identity);
-                _localController = _localPlayer.GetComponent<PlayerController>();
-                _localInputs = _localPlayer.GetComponent<PlayerCharacterInput>();
-
-                if (_localController == null || _localInputs == null)
-                {
-                    Debug.LogError("Missing components on local player prefab!", this);
-                    return;
-                }
-
-                SetupCameraAndUI();
-                Debug.Log($"Local player spawned with ID: {_localId} at {_localPlayer.transform.position}", this);
-            }
-        }
-        
-        private void SetupCameraAndUI()
-        {
-            var mainCamera = Camera.main;
-            if (mainCamera != null)
-            {
-                var cameraController = mainCamera.GetComponent<CameraController>();
-                if (cameraController != null)
-                {
-                    cameraController.playerTransform = _localPlayer.transform;
-                    Debug.Log($"Set CameraController target to {_localPlayer.name}", this);
-                }
-            }
-
-            var uiCanvasObj = GameObject.Find("UI_Canvas_StarterAssetsInputs_Joysticks");
-            if (uiCanvasObj != null)
-            {
-                var uiCanvasController = uiCanvasObj.GetComponent<UICanvasControllerInput>();
-                if (uiCanvasController != null && _localInputs != null)
-                {
-                    uiCanvasController.starterAssetsInputs = _localInputs;
-                    Debug.Log($"Connected UI canvas to Inputs", this);
-                }
-            }
-
-            ConnectUIElements();
-        }
-        
-        private void ConnectUIElements()
-        {
-            if (jumpButton != null)
-            {
-                jumpButton.onClick.RemoveAllListeners();
-                jumpButton.onClick.AddListener(() =>
-                {
-                    if (_localInputs != null) _localInputs.jump = true;
-                });
-                Debug.Log("Jump button connected.");
-            }
-            if (sprintButton != null)
-            {
-                sprintButton.onClick.RemoveAllListeners();
-                sprintButton.onClick.AddListener(() =>
-                {
-                    if (_localInputs != null) _localInputs.sprint = true;
-                });
-                Debug.Log("Sprint button connected.");
-            }
+            GameInitializer.PlayerManagerInstance.SpawnLocalPlayer(id);
         }
 
-        private void Update()
-        {
-            _remoteManager?.InterpolateRemotePlayers();
-        }
-
-        private void FixedUpdate()
-        {
-            if (_networkManager == null || _isDestroyed) return;
-
-            _networkManager.DispatchMessageQueue();
-            if (_localController != null && _localPlayer != null)
-            {
-                SendPlayerData();
-                _remoteManager?.ApplyServerPositions();
-
-                // Store local state
-                _localHistory.Add(new SnapshotEntry
-                {
-                    Timestamp = (long)Time.time,
-                    Position = _localPlayer.transform.position,
-                    Velocity = _localController.CurrentSpeed * transform.forward
-                });
-                if (_localHistory.Count > 100) _localHistory.RemoveAt(0); // Limit buffer size
-            }
-        }
-
-        private void LateUpdate() // Move resets here
-        {
-            if (_localInputs != null)
-            {
-                _localInputs.jump = false;
-            }
-        }
-
-        private void SendPlayerData()
-        {
-            var inputMessage = new InputMessage
-            {
-                X = _localPlayer.transform.position.x,
-                Y = _localPlayer.transform.position.y,
-                Z = _localPlayer.transform.position.z,
-                Angle = _localPlayer.transform.eulerAngles.y,
-                Speed = _localController.CurrentSpeed,
-                MotionSpeed = _localController.MotionSpeed,
-                Jump = _localController.IsJumping,
-                Grounded = _localController.Grounded,
-                FreeFall = !_localController.Grounded
-            };
-
-            string json = JsonConvert.SerializeObject(inputMessage);
-            _networkManager.SendMessage(json);
-        }
-
-        private void OnSnapshotReceived(Snapshot snapshot)
-        {
-            if (snapshot == null || snapshot.Positions == null)
-            {
-                Debug.LogWarning("OnSnapshotReceived: Received invalid snapshot.");
-                return;
-            }
-            Debug.Log($"Snapshot received at {Time.time:F3}s");
-            _latestSnapshot = snapshot;
-
-            if (_localPlayer != null && snapshot.Positions.ContainsKey(_localId))
-            {
-                Vector3 serverPos = snapshot.Positions[_localId].ToVector3();
-                var closestEntry = _localHistory.OrderBy(e => Mathf.Abs(e.Timestamp - snapshot.Timestamp / 10000000f)).FirstOrDefault();
-                if (closestEntry.Position != Vector3.zero && Vector3.Distance(closestEntry.Position, serverPos) > 0.1f)
-                {
-                    _localPlayer.transform.position = Vector3.Lerp(_localPlayer.transform.position, serverPos, 0.1f);
-                }
-            }
-
-            _remoteManager.StoreSnapshot(snapshot, _localId);
-        }
-        
         private void OnDestroy()
         {
             _isDestroyed = true;
-            _networkManager?.Close(); // Ensure this is the only close call
-            Debug.Log($"WebSocketPlayerController destroyed: {gameObject.name}", this);
+            if (_networkManager != null)
+            {
+                _networkManager.OnIdReceived -= OnIdReceived;
+            }
+            Debug.Log($"WebSocketPlayerController destroyed: {gameObject.name}");
         }
 
         private void OnApplicationQuit()
         {
-            _networkManager?.Close();
+            if (_networkManager != null)
+            {
+                _networkManager.OnIdReceived -= OnIdReceived;
+            }
         }
     }
 }

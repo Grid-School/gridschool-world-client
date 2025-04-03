@@ -1,79 +1,87 @@
-using Core.Networking;
-using Unity.Netcode;
+using System.Threading.Tasks;
 using UnityEngine;
+using Gameplay.Managers;
+using Core.Networking;
 
-namespace Gameplay.Managers
+public class GameManager : MonoBehaviour
 {
-    public class GameManager : MonoBehaviour
+    public static GameManager Instance { get; private set; }
+    public InkaNetworkManager NetworkManager => GameInitializer.NetworkManagerInstance;
+    public RemotePlayerManager RemotePlayers { get; private set; }
+
+    private string serverUri;
+    private GameObject playerPrefab;
+
+    public void Initialize(string uri, GameObject prefab)
     {
-        [SerializeField] private GameObject playerPrefab;
-        [SerializeField] private string serverUri = "ws://localhost:6000/ws";
-        [SerializeField] private float serverTimestep = 0.05f;
+        serverUri = uri;
+        playerPrefab = prefab;
+    }
 
-        private InkaNetworkManager _networkManager;
-        private PlayerManager _playerManager;
-        private CameraAndUIManager _cameraUIManager;
-
-        private static bool _isPrimaryController = true;
-
-        void Awake()
+    private void Awake()
+    {
+        if (Instance != null && Instance != this)
         {
-            if (!_isPrimaryController)
+            Destroy(gameObject);
+            return;
+        }
+        Instance = this;
+        Debug.Log("[GameManager] Instance created in Awake.");
+    }
+
+    private void Start()
+    {
+        if (GameInitializer.PlayerManagerInstance == null)
+        {
+            Debug.LogError("[GameManager] PlayerManager instance is missing!");
+            return;
+        }
+
+        if (playerPrefab == null)
+        {
+            Debug.LogError("[GameManager] Player prefab is not assigned!");
+            return;
+        }
+
+        if (NetworkManager == null)
+        {
+            Debug.LogError("[GameManager] NetworkManager instance is missing!");
+            return;
+        }
+
+        // Hook up network events (only for snapshots)
+        RemotePlayers = new RemotePlayerManager(playerPrefab);
+        NetworkManager.OnSnapshotReceived += (snapshot) =>
+        {
+            if (GameInitializer.PlayerManagerInstance.LocalPlayer != null)
             {
-                Destroy(gameObject);
-                return;
+                string localId = GameInitializer.PlayerManagerInstance.LocalPlayerId;
+                RemotePlayers.StoreSnapshot(snapshot, localId);
+                Debug.Log($"[GameManager] Snapshot stored with {snapshot.Positions.Count} players.");
             }
+        };
+    }
 
-            _isPrimaryController = false;
+    private float lastDispatchTime = 0;
+    private float dispatchInterval = 0.1f; // 10 times per second
 
-            Application.runInBackground = true;
-            QualitySettings.vSyncCount = 0;
-            Application.targetFrameRate = 60;
-            Time.fixedDeltaTime = serverTimestep;
-
-            DontDestroyOnLoad(gameObject);
-        }
-
-        async void Start()
+    private void Update()
+    {
+        if (Time.time - lastDispatchTime >= dispatchInterval)
         {
-            if (!ValidateSetup()) return;
-
-            _networkManager = new InkaNetworkManager(serverUri);
-            _playerManager = new PlayerManager(playerPrefab);
-            _cameraUIManager = new CameraAndUIManager();
-
-            _networkManager.OnIdReceived += _playerManager.SpawnLocalPlayer;
-            _networkManager.OnSnapshotReceived += _playerManager.UpdateRemotePlayers;
-
-            await _networkManager.ConnectAsync();
-            _cameraUIManager.Setup(_playerManager);
+            NetworkManager?.DispatchMessageQueue();
+            lastDispatchTime = Time.time;
         }
+        RemotePlayers?.InterpolateRemotePlayers();
+    }
 
-        private bool ValidateSetup()
+    private void OnDestroy()
+    {
+        if (NetworkManager != null)
         {
-            if (playerPrefab == null)
-            {
-                Debug.LogError("Player Prefab is not assigned!", this);
-                return false;
-            }
-
-            return true;
+            NetworkManager.OnSnapshotReceived -= (snapshot) =>
+                RemotePlayers?.StoreSnapshot(snapshot, GameInitializer.PlayerManagerInstance?.LocalPlayerId ?? "");
         }
-
-        void Update()
-        {
-            _playerManager?.RemoteManager?.InterpolateRemotePlayers(); // Fixed: Use RemoteManager
-        }
-
-        void FixedUpdate()
-        {
-            _networkManager?.DispatchMessageQueue();
-        }
-
-        void OnDestroy()
-        {
-            _networkManager?.Dispose();
-            _isPrimaryController = true;
-        }
+        Debug.Log("[GameManager] Destroyed.");
     }
 }

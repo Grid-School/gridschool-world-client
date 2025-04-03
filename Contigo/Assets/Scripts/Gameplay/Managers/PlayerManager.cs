@@ -1,44 +1,66 @@
-
-using Core.Data.ClientPlayerData;
-using Core.Networking;
+using System;
 using UnityEngine;
+using Core.Input;
+using Gameplay.Player;
 
 namespace Gameplay.Managers
 {
-    public class PlayerManager
+    public class PlayerManager : MonoBehaviour
     {
-        private GameObject _playerPrefab;
-        private GameObject _localPlayer;
-        private string _localId;
-        public RemotePlayerManager RemoteManager { get; private set; } // Public property
+        public static PlayerManager Instance { get; private set; }
+        public event Action<PlayerCharacterInput> OnLocalPlayerSpawned;
+        public GameObject playerPrefab;
+        public GameObject LocalPlayer { get; private set; }
+        public PlayerCharacterInput LocalPlayerInput { get; private set; }
+        public string LocalPlayerId { get; private set; } // Added
 
-        public PlayerManager(GameObject prefab)
+        private void Awake()
         {
-            _playerPrefab = prefab;
-            RemoteManager = new RemotePlayerManager(prefab);
+            if (Instance != null && Instance != this)
+            {
+                Destroy(gameObject);
+                return;
+            }
+            Instance = this;
+            DontDestroyOnLoad(gameObject);
+            Debug.Log("[PlayerManager] Instance created.");
         }
 
         public void SpawnLocalPlayer(string id)
         {
-            _localId = id;
-            if (_localPlayer == null)
+            Debug.Log($"[PlayerManager] SpawnLocalPlayer called with id: {id}");
+            LocalPlayerId = id; // Store the network ID
+            if (LocalPlayer != null)
             {
-                _localPlayer = Object.Instantiate(_playerPrefab, new Vector3(0, 1, 0), Quaternion.identity);
-                Debug.Log($"Local player spawned with ID: {id}");
+                Debug.LogWarning("[PlayerManager] Local player already exists.");
+                return;
+            }
+            if (playerPrefab == null)
+            {
+                Debug.LogError("[PlayerManager] Player prefab is not assigned!");
+                return;
+            }
+            LocalPlayer = Instantiate(playerPrefab, new Vector3(0, 1, 0), Quaternion.identity);
+            Debug.Log($"[PlayerManager] Local player instantiated at {LocalPlayer.transform.position} with ID: {id}");
+            LocalPlayerInput = LocalPlayer.GetComponentInChildren<PlayerCharacterInput>();
+            if (LocalPlayerInput != null)
+            {
+                OnLocalPlayerSpawned?.Invoke(LocalPlayerInput);
+                Debug.Log("[PlayerManager] OnLocalPlayerSpawned event fired.");
+            }
+            else
+            {
+                Debug.LogError("[PlayerManager] PlayerCharacterInput not found on the local player!");
             }
         }
 
-        public void UpdateRemotePlayers(Snapshot snapshot)
+        private void DumpHierarchy(Transform t, string prefix)
         {
-            if (_localPlayer != null && snapshot.Positions.ContainsKey(_localId))
+            Debug.Log($"{prefix} {t.name} (active: {t.gameObject.activeSelf})");
+            foreach (Transform child in t)
             {
-                Vector3 pos = snapshot.Positions[_localId].ToVector3();
-                _localPlayer.transform.position = pos;
+                DumpHierarchy(child, prefix + "  ");
             }
-
-            RemoteManager.StoreSnapshot(snapshot, _localId); // Fixed: Use RemoteManager
         }
-
-        public GameObject LocalPlayer => _localPlayer;
     }
 }

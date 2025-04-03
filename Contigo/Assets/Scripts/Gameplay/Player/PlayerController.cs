@@ -1,5 +1,7 @@
 ﻿using Core.Input;
 using UnityEngine;
+using Core.Networking;
+using Newtonsoft.Json;
 #if ENABLE_INPUT_SYSTEM 
 using UnityEngine.InputSystem;
 #endif
@@ -120,30 +122,20 @@ namespace Gameplay.Player
         {
             if (_isRemotePlayer) return;
 
-            _input = GetComponent<PlayerCharacterInput>();
+            if (_input == null)
+                _input = GetComponent<PlayerCharacterInput>();
+
 #if ENABLE_INPUT_SYSTEM 
             _playerInput = GetComponent<PlayerInput>();
-#else
-            Debug.LogError("Starter Assets package is missing dependencies. Please use Tools/Starter Assets/Reinstall Dependencies to fix it");
 #endif
 
-            if (_input == null)
+            if (_input == null || _controller == null || _playerInput == null)
             {
-                Debug.LogError("StarterAssetsInputs component not found on this GameObject!", this);
-            }
-
-            if (_controller == null)
-            {
-                Debug.LogError("CharacterController component not found on this GameObject!", this);
-            }
-
-            if (_playerInput == null)
-            {
-                Debug.LogError("PlayerInput component not found on this GameObject!", this);
+                Debug.LogError("Missing required components on Player!", this);
+                return;
             }
 
             AssignAnimationIDs();
-
             _jumpTimeoutDelta = JumpTimeout;
             _fallTimeoutDelta = FallTimeout;
         }
@@ -213,31 +205,29 @@ namespace Gameplay.Player
                 // If moving forward (or purely sideways), update rotation relative to camera
                 if (_input.move.y >= 0)
                 {
-                    // Compute the input direction (this is in local camera space)
                     Vector3 inputDirection = new Vector3(_input.move.x, 0.0f, _input.move.y).normalized;
                     float targetAngle = Mathf.Atan2(inputDirection.x, inputDirection.z) * Mathf.Rad2Deg;
-                    // Add the camera's current Y rotation if available
                     _targetRotation = (_mainCamera != null ? _mainCamera.transform.eulerAngles.y : 0f) + targetAngle;
                     float rotation = Mathf.SmoothDampAngle(transform.eulerAngles.y, _targetRotation, ref _rotationVelocity, RotationSmoothTime);
                     transform.rotation = Quaternion.Euler(0.0f, rotation, 0.0f);
 
-                    // Movement is in the forward direction based on the new rotation
                     Vector3 targetDirection = Quaternion.Euler(0.0f, _targetRotation, 0.0f) * Vector3.forward;
                     movement = targetDirection.normalized;
                 }
-                // For backward movement, do not update the rotation so the character keeps facing forward
                 else
                 {
-                    // Construct the backward input vector.
-                    // _input.move.y is negative here. We combine the horizontal input (if any)
-                    // with the backwards direction (i.e. negative transform.forward).
                     Vector3 backwardInput = new Vector3(_input.move.x, 0.0f, _input.move.y);
                     movement = (transform.right * backwardInput.x - transform.forward * Mathf.Abs(backwardInput.z)).normalized;
                 }
             }
 
-            // Move the character controller based on the computed movement and vertical velocity
+            if (_speed > 0) Debug.Log($"[MOVE EXECUTED] Final movement={movement} | speed={_speed} | verticalVelocity={_verticalVelocity}");
+
+            // Move the character controller
             _controller.Move(movement * (_speed * Time.deltaTime) + new Vector3(0.0f, _verticalVelocity, 0.0f) * Time.deltaTime);
+
+            // Send movement data to server
+            SendMovementToServer(inputMagnitude);
 
             // Update Animator parameters
             if (_hasAnimator && _animator != null)
@@ -247,6 +237,45 @@ namespace Gameplay.Player
             }
         }
 
+        private bool isSendingMovement = false;
+        private float lastLogTime = 0;
+        private float logInterval = 1f;
+
+        private void SendMovementToServer(float inputMagnitude)
+        {
+            if (isSendingMovement || GameInitializer.NetworkManagerInstance == null) return;
+            isSendingMovement = true;
+
+            var inputMessage = new InputMessage
+            {
+                X = transform.position.x,
+                Y = transform.position.y,
+                Z = transform.position.z,
+                Angle = transform.eulerAngles.y,
+                Speed = _animationBlend,
+                MotionSpeed = inputMagnitude,
+                Jump = IsJumping,
+                Grounded = Grounded,
+                FreeFall = !Grounded && _fallTimeoutDelta <= 0f
+            };
+            string json = JsonConvert.SerializeObject(inputMessage);
+            GameInitializer.NetworkManagerInstance.SendMessage(json);
+
+            if (Time.time - lastLogTime >= logInterval)
+            {
+                Debug.Log($"[PlayerController] Sent position: ({inputMessage.X}, {inputMessage.Y}, {inputMessage.Z}), Jump={inputMessage.Jump}, Grounded={inputMessage.Grounded}, FreeFall={inputMessage.FreeFall}");
+                lastLogTime = Time.time;
+            }
+            isSendingMovement = false;
+        }
+        
+        public void InjectInput(PlayerCharacterInput input)
+        {
+            _input = input;
+            AssignAnimationIDs();
+            _jumpTimeoutDelta = JumpTimeout;
+            _fallTimeoutDelta = FallTimeout;
+        }
 
         private void JumpAndGravity()
         {
@@ -359,5 +388,19 @@ namespace Gameplay.Player
                 }
             }
         }
+    }
+
+    // Define InputMessage to match server expectations
+    public class InputMessage
+    {
+        public float X { get; set; }
+        public float Y { get; set; }
+        public float Z { get; set; }
+        public float Angle { get; set; }
+        public float Speed { get; set; }
+        public float MotionSpeed { get; set; }
+        public bool Jump { get; set; }
+        public bool Grounded { get; set; }
+        public bool FreeFall { get; set; }
     }
 }
