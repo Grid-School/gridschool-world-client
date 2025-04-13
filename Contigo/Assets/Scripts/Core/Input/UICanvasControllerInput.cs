@@ -1,88 +1,72 @@
-using System.Collections;
 using UnityEngine;
-using Core.Input;
 using Gameplay.Managers;
-using UnityEngine.EventSystems;
-using UnityEngine.InputSystem;
-using UnityEngine.InputSystem.UI; // new input system
 
 namespace Core.Input
 {
     public class UICanvasControllerInput : MonoBehaviour
     {
-        public PlayerCharacterInput localPlayerInput;
-        private Vector2 lastUIMoveInput = Vector2.zero;
-        private bool hasUIJoystickMoved = false;
+        [Header("Output")]
+        public PlayerCharacterInput virtualInput;
 
-        private void OnEnable()
-        {
-            StartCoroutine(WaitForLocalPlayerInput());
-        }
-        
         private void Start()
         {
-            // Safety check: re-enable all InputModules
-            var system = EventSystem.current;
-            if (system != null && system.currentInputModule is InputSystemUIInputModule inputModule)
+            // Subscribe to PlayerManager's spawn event
+            if (PlayerManager.Instance != null)
             {
-                inputModule.enabled = false;
-                inputModule.enabled = true;
-                Debug.Log("[UICanvasControllerInput] Re-enabled InputSystemUIInputModule");
+                PlayerManager.Instance.OnLocalPlayerSpawned += OnLocalPlayerSpawned;
+            }
+            else
+            {
+                Debug.LogError("[UICanvasControllerInput] PlayerManager instance not found!");
             }
         }
 
-
-        private IEnumerator WaitForLocalPlayerInput()
+        private void OnLocalPlayerSpawned(PlayerCharacterInput playerInput)
         {
-            while (PlayerManager.Instance == null || PlayerManager.Instance.LocalPlayerInput == null)
-                yield return null;
-
-            localPlayerInput = PlayerManager.Instance.LocalPlayerInput;
+            virtualInput = playerInput;
+            Debug.Log("[UICanvasControllerInput] Assigned virtualInput from spawned player.");
         }
 
-        private void Update()
+        public void VirtualMoveInput(Vector2 virtualMoveDirection)
         {
-            // ✅ Fallback: if UI Move input hasn’t been called but input exists
-            if (!hasUIJoystickMoved && localPlayerInput != null)
+            if (virtualInput == null)
             {
-                // This checks for InputAction "Move" in case UI binding is lost
-                Vector2 rawMove = Vector2.zero;
-                var gamepad = Gamepad.current;
-                if (gamepad != null)
-                {
-                    rawMove = new Vector2(gamepad.leftStick.x.ReadValue(), gamepad.leftStick.y.ReadValue());
-                }
-
-                if (rawMove != Vector2.zero)
-                {
-                    localPlayerInput.SetUIMove(rawMove);
-                }
+                Debug.LogError("[UICanvasControllerInput] virtualInput is not assigned!");
+                return;
             }
+            virtualInput.MoveInput(virtualMoveDirection);
+            Debug.Log($"[UICanvasControllerInput] VirtualMoveInput called: {virtualMoveDirection}");
         }
 
-        public void VirtualMoveInput(Vector2 value)
+        public void VirtualJumpInput(bool virtualJumpState)
         {
-            if (localPlayerInput != null)
+            if (virtualInput == null)
             {
-                hasUIJoystickMoved = true;
-                lastUIMoveInput = value;
-                localPlayerInput.SetUIMove(value);
+                Debug.LogError("[UICanvasControllerInput] virtualInput is not assigned!");
+                return;
             }
+            virtualInput.JumpInput(virtualJumpState);
+            Debug.Log($"[UICanvasControllerInput] VirtualJumpInput called: {virtualJumpState}");
         }
 
-        public void VirtualLookInput(Vector2 value)
+        public void VirtualSprintInput(bool virtualSprintState)
         {
-            localPlayerInput?.LookInput(value);
+            if (virtualInput == null)
+            {
+                Debug.LogError("[UICanvasControllerInput] virtualInput is not assigned!");
+                return;
+            }
+            virtualInput.SprintInput(virtualSprintState);
+            Debug.Log($"[UICanvasControllerInput] VirtualSprintInput called: {virtualSprintState}");
         }
 
-        public void VirtualJumpInput(bool value)
+        private void OnDestroy()
         {
-            localPlayerInput?.SetUIJump(value);
-        }
-
-        public void VirtualSprintInput(bool value)
-        {
-            localPlayerInput?.SetUISprint(value);
+            // Unsubscribe from the event to prevent memory leaks
+            if (PlayerManager.Instance != null)
+            {
+                PlayerManager.Instance.OnLocalPlayerSpawned -= OnLocalPlayerSpawned;
+            }
         }
     }
 }

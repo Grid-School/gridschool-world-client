@@ -177,7 +177,11 @@ namespace Gameplay.Player
 
             // Determine target speed based on sprint state
             float targetSpeed = _input.sprint ? SprintSpeed : MoveSpeed;
-            if (_input.move == Vector2.zero) targetSpeed = 0.0f;
+            if (_input.move == Vector2.zero)
+            {
+                targetSpeed = 0.0f;
+                _input.sprint = false; // Force-clear sprint when not moving
+            }
 
             float currentHorizontalSpeed = new Vector3(_controller.velocity.x, 0.0f, _controller.velocity.z).magnitude;
             float speedOffset = 0.1f;
@@ -194,15 +198,17 @@ namespace Gameplay.Player
                 _speed = targetSpeed;
             }
 
-            // Update the animation blend value (used by the Animator)
+            if (targetSpeed == 0.0f)
+            {
+                _speed = 0.0f;
+            }
+
             _animationBlend = Mathf.Lerp(_animationBlend, targetSpeed, Time.deltaTime * SpeedChangeRate);
-            if (_animationBlend < 0.01f) _animationBlend = 0f;
+            if (_animationBlend < 0.01f || targetSpeed == 0.0f) _animationBlend = 0f;
 
             Vector3 movement = Vector3.zero;
-            // Only process movement if there is input
             if (_input.move != Vector2.zero)
             {
-                // If moving forward (or purely sideways), update rotation relative to camera
                 if (_input.move.y >= 0)
                 {
                     Vector3 inputDirection = new Vector3(_input.move.x, 0.0f, _input.move.y).normalized;
@@ -223,13 +229,10 @@ namespace Gameplay.Player
 
             if (_speed > 0) Debug.Log($"[MOVE EXECUTED] Final movement={movement} | speed={_speed} | verticalVelocity={_verticalVelocity}");
 
-            // Move the character controller
             _controller.Move(movement * (_speed * Time.deltaTime) + new Vector3(0.0f, _verticalVelocity, 0.0f) * Time.deltaTime);
 
-            // Send movement data to server
             SendMovementToServer(inputMagnitude);
 
-            // Update Animator parameters
             if (_hasAnimator && _animator != null)
             {
                 _animator.SetFloat(_animIDSpeed, _animationBlend);
@@ -239,7 +242,7 @@ namespace Gameplay.Player
 
         private bool isSendingMovement = false;
         private float lastLogTime = 0;
-        private float logInterval = 1f;
+        private float logInterval = 0.1f;
 
         private void SendMovementToServer(float inputMagnitude)
         {
@@ -268,7 +271,7 @@ namespace Gameplay.Player
             }
             isSendingMovement = false;
         }
-        
+
         public void InjectInput(PlayerCharacterInput input)
         {
             _input = input;

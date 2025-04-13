@@ -1,55 +1,59 @@
-using UnityEngine;
 using Gameplay.Managers;
-using System.Threading.Tasks;
-using System;
+using UnityEngine;
 
 namespace Core.Networking
 {
     public class WebSocketPlayerController : MonoBehaviour
     {
         private InkaNetworkManager _networkManager;
-        private bool _isDestroyed = false;
+
+        private void Awake()
+        {
+            Debug.Log($"[WebSocketPlayerController] Awake called on {gameObject.name}. GameObject active: {gameObject.activeSelf}");
+        }
+
+        private void OnEnable()
+        {
+            Debug.Log($"[WebSocketPlayerController] OnEnable called on {gameObject.name}. Component enabled: {enabled}");
+        }
 
         private void Start()
         {
-            Debug.Log("Starting WebSocketPlayerController");
+            Debug.Log($"[WebSocketPlayerController] Starting on {gameObject.name}");
+            _networkManager = GameInitializer.NetworkManagerInstance;
+            if (_networkManager == null)
+            {
+                Debug.LogError("[WebSocketPlayerController] NetworkManager instance is missing!");
+                return;
+            }
 
-            if (GameInitializer.NetworkManagerInstance != null)
-            {
-                _networkManager = GameInitializer.NetworkManagerInstance;
-                _networkManager.OnIdReceived += OnIdReceived;
-                Debug.Log("Using GameInitializer's NetworkManager in WebSocketPlayerController");
-            }
-            else
-            {
-                Debug.LogError("[WebSocketPlayerController] NetworkManagerInstance not found, cannot initialize network!");
-            }
+            _networkManager.OnIdReceived += OnIdReceived;
+            Debug.Log("[WebSocketPlayerController] Subscribed to NetworkManager.OnIdReceived.");
         }
 
         private void OnIdReceived(string id)
         {
-            if (_isDestroyed || !gameObject.activeInHierarchy) return;
-            Debug.Log($"OnIdReceived called with ID: {id} on {gameObject.name}");
-
+            Debug.Log($"[WebSocketPlayerController] OnIdReceived called with ID: {id} on {gameObject.name} at time {Time.time}");
             if (GameInitializer.PlayerManagerInstance == null)
             {
-                Debug.LogError("[WebSocketPlayerController] PlayerManagerInstance is null! Cannot spawn player.");
+                Debug.LogError("[WebSocketPlayerController] PlayerManager instance is missing!");
                 return;
             }
+
             GameInitializer.PlayerManagerInstance.SpawnLocalPlayer(id);
+
+            if (RemotePlayerManager.Instance != null)
+            {
+                RemotePlayerManager.Instance.SetLocalPlayerId(id);
+                Debug.Log($"[WebSocketPlayerController] Set local player ID {id} in RemotePlayerManager at time {Time.time}.");
+            }
+            else
+            {
+                Debug.LogError("[WebSocketPlayerController] RemotePlayerManager instance is missing!");
+            }
         }
 
         private void OnDestroy()
-        {
-            _isDestroyed = true;
-            if (_networkManager != null)
-            {
-                _networkManager.OnIdReceived -= OnIdReceived;
-            }
-            Debug.Log($"WebSocketPlayerController destroyed: {gameObject.name}");
-        }
-
-        private void OnApplicationQuit()
         {
             if (_networkManager != null)
             {
