@@ -4,7 +4,7 @@ public class FocusHandler : MonoBehaviour
 {
     private void OnApplicationFocus(bool hasFocus)
     {
-        Debug.Log($"[FocusHandler] Application focus changed: {hasFocus} at time {Time.time}");
+        Debug.Log($"[PlayerCharacterInput] Application focus changed: {hasFocus}");
     }
 
     private void OnApplicationPause(bool pauseStatus)

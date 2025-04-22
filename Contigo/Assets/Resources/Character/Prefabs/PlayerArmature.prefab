@@ -1924,7 +1924,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: bc1cf1e105704e81934f1fec0162d715, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  inputActionsAsset: {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}
+  inputActionsAsset: {fileID: 0}
 --- !u!114 &9093363753412709122
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2000,6 +2000,7 @@ MonoBehaviour:
   analogMovement: 0
   cursorLocked: 1
   cursorInputForLook: 1
+  isLocalPlayer: 1
 --- !u!114 &1443287903549658922
 MonoBehaviour:
   m_ObjectHideFlags: 0

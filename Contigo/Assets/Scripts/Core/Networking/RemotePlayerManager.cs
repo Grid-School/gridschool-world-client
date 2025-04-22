@@ -1,264 +1,256 @@
-using System;
+using UnityEngine;
 using System.Collections.Generic;
 using System.Linq;
-using Core.Data.ClientPlayerData;
 using Core.Input;
+using Core.Networking;
 using Gameplay.Player;
-using UnityEngine;
+using UnityEngine.InputSystem;
 
 namespace Core.Networking
 {
-public class RemotePlayerManager : MonoBehaviour
-{
-    private Dictionary<string, RemotePlayer> _remotePlayers;
-    private Dictionary<string, SnapshotBuffer> _snapshotBuffers;
-    private GameObject _playerPrefab;
-    private string _localPlayerId;
-
-    private class SnapshotBuffer
+    public class RemotePlayerManager : MonoBehaviour
     {
-        public Vector3 PreviousPosition;
-        public Quaternion PreviousRotation;
-        public InkaAnimationState PreviousAnimState;
-        public Vector3 CurrentPosition;
-        public Quaternion CurrentRotation;
-        public InkaAnimationState CurrentAnimState;
-        public float Timestamp;
-        public float SnapshotInterval; // Average interval between snapshots
-        public List<float> SnapshotIntervalHistory; // For smoothing interval
-        public const int HistorySize = 3;
-    }
+        private GameObject _playerPrefab;
+        private readonly Dictionary<string, GameObject> _remotePlayers = new Dictionary<string, GameObject>();
+        private readonly Dictionary<string, PlayerPosition> _targetPositions = new Dictionary<string, PlayerPosition>();
+        private readonly Dictionary<string, PlayerRotation> _targetRotations = new Dictionary<string, PlayerRotation>();
+        private readonly Dictionary<string, PlayerAnimation> _targetAnimations = new Dictionary<string, PlayerAnimation>();
+        private string _localPlayerId;
+        private float _lastInterpolationTime = 0f;
+        private const float InterpolationInterval = 0.1f; // 10 times per second
 
-    public static RemotePlayerManager Instance { get; private set; }
-
-    private void Awake()
-    {
-        if (Instance != null && Instance != this)
+        private void Awake()
         {
-            Destroy(this);
-            Debug.LogWarning("[RemotePlayerManager] Another instance already exists. Destroying this one.");
-            return;
-        }
-        Instance = this;
-
-        _remotePlayers = new Dictionary<string, RemotePlayer>();
-        _snapshotBuffers = new Dictionary<string, SnapshotBuffer>();
-        Debug.Log("[RemotePlayerManager] Awake completed.");
-    }
-
-    public void Initialize(GameObject prefab)
-    {
-        _playerPrefab = prefab;
-        if (_playerPrefab == null)
-        {
-            Debug.LogError("[RemotePlayerManager] Player prefab is null!");
-        }
-        else
-        {
-            Debug.Log("[RemotePlayerManager] Initialized with player prefab: " + _playerPrefab.name);
-        }
-    }
-
-    public void SetLocalPlayerId(string id)
-    {
-        _localPlayerId = id;
-        Debug.Log($"[RemotePlayerManager] Local player ID set to {_localPlayerId}");
-    }
-
-    public void StoreSnapshot(Snapshot snapshot, string localId)
-    {
-        if (snapshot == null || snapshot.Positions == null)
-        {
-            Debug.LogWarning("[RemotePlayerManager] Received null snapshot or positions.");
-            return;
+            Debug.Log("[RemotePlayerManager] Awake completed.");
         }
 
-        Debug.Log($"[RemotePlayerManager] Storing snapshot with {snapshot.Positions.Count} players at {Time.time}");
-        foreach (var kvp in snapshot.Positions)
+        public void Initialize(GameObject playerPrefab)
         {
-            Debug.Log($"[RemotePlayerManager] Player {kvp.Key}: Position ({kvp.Value.X}, {kvp.Value.Y}, {kvp.Value.Z})");
+            _playerPrefab = playerPrefab;
+            Debug.Log($"[RemotePlayerManager] Initialized with player prefab: {(_playerPrefab != null ? _playerPrefab.name : "null")}");
         }
 
-        var removeKeys = _remotePlayers.Keys.Where(id => !snapshot.Positions.ContainsKey(id)).ToList();
-        foreach (var id in removeKeys)
+        public void SetLocalPlayerId(string localPlayerId)
         {
-            if (_remotePlayers[id]?.GameObject != null)
+            _localPlayerId = localPlayerId;
+            Debug.Log($"[RemotePlayerManager] Local player ID set to: {_localPlayerId}");
+        }
+
+        public void SpawnRemotePlayer(string playerId)
+        {
+            // 1) Dedupe and don’t spawn your own ID
+            if (_remotePlayers.ContainsKey(playerId))
             {
-                if (Application.isEditor && !Application.isPlaying)
-                    UnityEngine.Object.DestroyImmediate(_remotePlayers[id].GameObject);
-                else
-                    UnityEngine.Object.Destroy(_remotePlayers[id].GameObject);
-            }
-            _remotePlayers.Remove(id);
-            _snapshotBuffers.Remove(id);
-            Debug.Log($"[RemotePlayerManager] Removed player {id}");
-        }
-
-        foreach (var kvp in snapshot.Positions)
-        {
-            if (string.IsNullOrEmpty(kvp.Key) || kvp.Key == _localPlayerId)
-            {
-                Debug.Log($"[RemotePlayerManager] Skipping player {kvp.Key} (Local player ID: {_localPlayerId})");
-                continue;
+                Debug.Log($"[RemotePlayerManager] Player {playerId} already exists. Skipping spawn.");
+                return;
             }
 
-            if (!_remotePlayers.ContainsKey(kvp.Key))
+            if (playerId == _localPlayerId)
             {
-                if (_playerPrefab == null)
+                Debug.Log($"[RemotePlayerManager] Skipping spawn for local player ID: {playerId}");
+                return;
+            }
+
+            // 2) Instantiate and book‑keep
+            Debug.Log($"[RemotePlayerManager] Spawning remote player with ID: {playerId}");
+            GameObject playerObj = Instantiate(_playerPrefab, Vector3.zero, Quaternion.identity);
+            playerObj.name = $"RemotePlayer_{playerId}";
+            playerObj.tag  = "RemotePlayer";
+            _remotePlayers[playerId] = playerObj;
+
+            // 3) Completely remove any input or local‑only logic
+#if ENABLE_INPUT_SYSTEM
+            var playerInput = playerObj.GetComponent<PlayerInput>();
+            if (playerInput != null)
+            {
+                Destroy(playerInput);
+            }
+#endif
+
+            var setupInput = playerObj.GetComponent<SetupInputActions>();
+            if (setupInput != null)
+            {
+                Destroy(setupInput);
+            }
+
+            var characterInput = playerObj.GetComponent<PlayerCharacterInput>();
+            if (characterInput != null)
+            {
+                Destroy(characterInput);
+            }
+
+            var controller = playerObj.GetComponent<PlayerController>();
+            if (controller != null)
+            {
+                Destroy(controller);
+            }
+
+            // (Optional) Strip out any camera or UI components that could interfere
+            var camera = playerObj.GetComponentInChildren<Camera>();
+            if (camera != null)
+            {
+                Destroy(camera.gameObject); // Destroy the entire camera if it's a child
+            }
+
+            var canvas = playerObj.GetComponentInChildren<Canvas>();
+            if (canvas != null)
+            {
+                Destroy(canvas.gameObject);
+            }
+            
+            var animator = playerObj.GetComponent<Animator>();
+            if (animator != null)
+            {
+                animator.logWarnings = false;
+            }
+
+            Debug.Log($"[RemotePlayerManager] Remote player {playerId} fully stripped of input/local logic.");
+        }
+
+
+        public void UpdateRemotePlayers(
+            Dictionary<string, PlayerPosition> positions,
+            Dictionary<string, PlayerRotation> rotations,
+            Dictionary<string, PlayerVelocity> velocities,
+            Dictionary<string, PlayerCollision> collisions,
+            Dictionary<string, PlayerAnimation> animations)
+        {
+            var toRemove = _remotePlayers.Keys.Except(positions.Keys).ToList();
+            foreach (var id in toRemove)
+            {
+                Destroy(_remotePlayers[id]);
+                _remotePlayers.Remove(id);
+                _targetPositions.Remove(id);
+                _targetRotations.Remove(id);
+                _targetAnimations.Remove(id);
+            }
+            
+            // Update target positions
+            if (positions != null)
+            {
+                foreach (var kvp in positions)
                 {
-                    Debug.LogError("[RemotePlayerManager] Cannot instantiate player: prefab is null!");
+                    string playerId = kvp.Key;
+                    if (playerId == _localPlayerId)
+                    {
+                        continue;
+                    }
+
+                    if (!_remotePlayers.ContainsKey(playerId))
+                    {
+                        SpawnRemotePlayer(playerId);
+                    }
+                    _targetPositions[playerId] = kvp.Value;
+                }
+            }
+
+            // Update target rotations
+            if (rotations != null)
+            {
+                foreach (var kvp in rotations)
+                {
+                    string playerId = kvp.Key;
+                    if (playerId == _localPlayerId)
+                    {
+                        continue;
+                    }
+
+                    if (_remotePlayers.ContainsKey(playerId))
+                    {
+                        _targetRotations[playerId] = kvp.Value;
+                    }
+                }
+            }
+
+            // Update animations
+            if (animations != null)
+            {
+                foreach (var kvp in animations)
+                {
+                    string playerId = kvp.Key;
+                    if (playerId == _localPlayerId)
+                    {
+                        continue;
+                    }
+
+                    if (_remotePlayers.ContainsKey(playerId))
+                    {
+                        _targetAnimations[playerId] = kvp.Value;
+                        ApplyAnimations(playerId, kvp.Value);
+                    }
+                }
+            }
+        }
+
+        public void InterpolateRemotePlayers()
+        {
+            if (Time.time - _lastInterpolationTime < InterpolationInterval)
+            {
+                return; // Throttle interpolation
+            }
+            _lastInterpolationTime = Time.time;
+
+            if (_remotePlayers.Count == 0)
+            {
+                return;
+            }
+
+            foreach (var kvp in _remotePlayers)
+            {
+                string playerId = kvp.Key;
+                GameObject playerObj = kvp.Value;
+
+                if (playerObj == null)
+                {
+                    Debug.LogWarning($"[RemotePlayerManager] Remote player {playerId} GameObject is null. Removing.");
+                    _remotePlayers.Remove(playerId);
                     continue;
                 }
 
-                var remoteObj = UnityEngine.Object.Instantiate(_playerPrefab);
-
-                var controller = remoteObj.GetComponent<PlayerController>();
-                if (controller != null) controller.enabled = false;
-
-                var inputs = remoteObj.GetComponent<PlayerCharacterInput>();
-                if (inputs != null) inputs.enabled = false;
-                else Debug.LogWarning($"[RemotePlayerManager] PlayerCharacterInput not found on remote player {kvp.Key}.");
-
-                _remotePlayers[kvp.Key] = new RemotePlayer(remoteObj);
-                _snapshotBuffers[kvp.Key] = new SnapshotBuffer
+                // Interpolate position
+                if (_targetPositions.ContainsKey(playerId))
                 {
-                    PreviousPosition = kvp.Value.ToVector3(),
-                    CurrentPosition = kvp.Value.ToVector3(),
-                    PreviousRotation = Quaternion.identity,
-                    CurrentRotation = Quaternion.identity,
-                    PreviousAnimState = new InkaAnimationState(),
-                    CurrentAnimState = new InkaAnimationState(),
-                    Timestamp = Time.time,
-                    SnapshotInterval = 0.1f, // Default for 10 FPS
-                    SnapshotIntervalHistory = new List<float>()
-                };
-                Debug.Log($"[RemotePlayerManager] Added new player {kvp.Key} at {kvp.Value.ToVector3()}");
+                    var targetPos = _targetPositions[playerId];
+                    Vector3 targetPosition = new Vector3(targetPos.X, targetPos.Y, targetPos.Z);
+                    playerObj.transform.position = Vector3.Lerp(playerObj.transform.position, targetPosition, Time.deltaTime * 5f);
+                }
+
+                // Interpolate rotation
+                if (_targetRotations.ContainsKey(playerId))
+                {
+                    var targetRot = _targetRotations[playerId];
+                    Quaternion targetRotation = new Quaternion(targetRot.X, targetRot.Y, targetRot.Z, targetRot.W);
+                    playerObj.transform.rotation = Quaternion.Slerp(playerObj.transform.rotation, targetRotation, Time.deltaTime * 5f);
+                }
             }
         }
 
-        foreach (var kvp in snapshot.Positions)
+        private void ApplyAnimations(string playerId, PlayerAnimation animData)
         {
-            if (kvp.Key == _localPlayerId || !_snapshotBuffers.ContainsKey(kvp.Key)) continue;
-
-            var buffer = _snapshotBuffers[kvp.Key];
-            float snapshotInterval = Time.time - buffer.Timestamp;
-
-            buffer.SnapshotIntervalHistory.Add(snapshotInterval);
-            if (buffer.SnapshotIntervalHistory.Count > SnapshotBuffer.HistorySize)
-                buffer.SnapshotIntervalHistory.RemoveAt(0);
-            buffer.SnapshotInterval = buffer.SnapshotIntervalHistory.Average();
-
-            buffer.PreviousPosition = buffer.CurrentPosition;
-            buffer.CurrentPosition = kvp.Value.ToVector3();
-            buffer.PreviousRotation = buffer.CurrentRotation;
-            buffer.CurrentRotation = snapshot.Rotations.TryGetValue(kvp.Key, out var rotData)
-                ? rotData.ToQuaternion()
-                : buffer.CurrentRotation;
-            buffer.PreviousAnimState = buffer.CurrentAnimState;
-            buffer.CurrentAnimState = snapshot.Animations.TryGetValue(kvp.Key, out var animState)
-                ? animState
-                : buffer.CurrentAnimState;
-            buffer.Timestamp = Time.time;
-
-            if (_remotePlayers.TryGetValue(kvp.Key, out var remote) && remote.GameObject != null)
+            if (_remotePlayers.TryGetValue(playerId, out GameObject playerObj))
             {
-                Vector3 currentPos = remote.GameObject.transform.position;
-                buffer.PreviousPosition = Vector3.Lerp(currentPos, buffer.PreviousPosition, 0.5f);
+                Animator animator = playerObj.GetComponent<Animator>();
+                if (animator != null)
+                {
+                    animator.SetFloat("Speed", animData.Speed);
+                    animator.SetFloat("MotionSpeed", animData.MotionSpeed);
+                    animator.SetBool("Jump", animData.Jump);
+                    animator.SetBool("Grounded", animData.Grounded);
+                    animator.SetBool("FreeFall", animData.FreeFall);
+                }
             }
+        }
 
-            Debug.Log($"[RemotePlayerManager] Updated buffer for {kvp.Key}: New Pos={buffer.CurrentPosition}, SnapshotInterval={buffer.SnapshotInterval}");
+        private void OnDestroy()
+        {
+            foreach (var player in _remotePlayers.Values)
+            {
+                if (player != null)
+                {
+                    Destroy(player);
+                }
+            }
+            _remotePlayers.Clear();
         }
     }
-
-    public void InterpolateRemotePlayers()
-    {
-        if (string.IsNullOrEmpty(_localPlayerId))
-        {
-            Debug.Log("[RemotePlayerManager] No local player ID set yet. Cannot interpolate remote players.");
-            return;
-        }
-
-        if (_remotePlayers.Count == 0)
-        {
-            Debug.Log("[RemotePlayerManager] No remote players to interpolate. RemotePlayers count: " + _remotePlayers.Count);
-            return;
-        }
-
-        var playerIds = new List<string>(_remotePlayers.Keys);
-        foreach (var id in playerIds)
-        {
-            if (!_remotePlayers.TryGetValue(id, out var remote))
-            {
-                Debug.LogWarning($"[RemotePlayerManager] Player {id} not found in _remotePlayers during iteration. Skipping.");
-                continue;
-            }
-
-            if (remote?.GameObject == null)
-            {
-                Debug.LogWarning($"[RemotePlayerManager] Remote player {id} has null GameObject. Skipping.");
-                continue;
-            }
-
-            if (!_snapshotBuffers.TryGetValue(id, out var buffer))
-            {
-                Debug.LogWarning($"[RemotePlayerManager] No snapshot buffer found for player {id}. Skipping.");
-                continue;
-            }
-
-            // Calculate interpolation factor based on the smoothed snapshot interval
-            float t = (Time.time - buffer.Timestamp) / buffer.SnapshotInterval;
-            t = Mathf.Clamp01(t); // Always interpolate between Previous and Current
-
-            // Interpolate position directly
-            Vector3 targetPos = Vector3.Lerp(buffer.PreviousPosition, buffer.CurrentPosition, t);
-
-            // Smooth the position update
-            Vector3 currentPos = remote.GameObject.transform.position;
-            float smoothFactor = Mathf.Clamp01(Time.deltaTime / buffer.SnapshotInterval); // Frequency-aware smoothing
-            float x = Mathf.Lerp(currentPos.x, targetPos.x, smoothFactor);
-            float y = Mathf.Lerp(currentPos.y, targetPos.y, smoothFactor);
-            float z = Mathf.Lerp(currentPos.z, targetPos.z, smoothFactor);
-
-            // Snap Y to ensure height accuracy at the end of interpolation
-            if (t >= 0.99f)
-            {
-                y = buffer.CurrentPosition.y;
-            }
-
-            Vector3 newPosition = new Vector3(x, y, z);
-            remote.GameObject.transform.position = newPosition;
-            remote.GameObject.transform.rotation = Quaternion.Slerp(buffer.PreviousRotation, buffer.CurrentRotation, t);
-
-            Animator animator = remote.GameObject.GetComponent<Animator>();
-            if (animator != null)
-            {
-                float speed = Mathf.Lerp(buffer.PreviousAnimState.Speed, buffer.CurrentAnimState.Speed, t);
-                float motionSpeed = Mathf.Lerp(buffer.PreviousAnimState.MotionSpeed, buffer.CurrentAnimState.MotionSpeed, t);
-                animator.SetFloat("Speed", speed);
-                animator.SetFloat("MotionSpeed", motionSpeed);
-                animator.SetBool("Jump", buffer.CurrentAnimState.Jump);
-                animator.SetBool("Grounded", buffer.CurrentAnimState.Grounded);
-                animator.SetBool("FreeFall", buffer.CurrentAnimState.FreeFall);
-                Debug.Log($"[RemotePlayerManager] Updated animator for player {id}: Speed={speed}, MotionSpeed={motionSpeed}");
-            }
-        }
-    }
-
-    private void OnDestroy()
-    {
-        foreach (var player in _remotePlayers.Values)
-        {
-            if (player?.GameObject != null)
-            {
-                if (Application.isEditor && !Application.isPlaying)
-                    UnityEngine.Object.DestroyImmediate(player.GameObject);
-                else
-                    UnityEngine.Object.Destroy(player.GameObject);
-            }
-        }
-        _remotePlayers.Clear();
-        _snapshotBuffers.Clear();
-        Debug.Log("[RemotePlayerManager] Destroyed and cleaned up.");
-    }
-}
 }

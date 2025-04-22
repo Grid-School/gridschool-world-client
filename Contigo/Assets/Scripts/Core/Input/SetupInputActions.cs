@@ -1,7 +1,7 @@
+using UnityEngine;
 #if ENABLE_INPUT_SYSTEM
 using UnityEngine.InputSystem;
 #endif
-using UnityEngine;
 
 namespace Core.Input
 {
@@ -19,13 +19,16 @@ namespace Core.Input
                 Debug.LogError("[SetupInputActions] PlayerInput component not found on this GameObject!");
                 return;
             }
+
             if (inputActionsAsset == null)
             {
                 Debug.LogError("[SetupInputActions] Input Action Asset is not assigned in the Inspector!");
                 return;
             }
-            _playerInput.actions = inputActionsAsset;
-            Debug.Log("[SetupInputActions] Assigned Input Action Asset to PlayerInput.");
+
+            _playerInput.actions = Instantiate(inputActionsAsset);
+
+            Debug.Log("[SetupInputActions] Assigned cloned Input Action Asset to PlayerInput.");
         }
 #endif
     }
