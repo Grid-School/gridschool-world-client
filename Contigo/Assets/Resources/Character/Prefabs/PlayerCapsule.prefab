@@ -193,7 +193,6 @@ MonoBehaviour:
   FootstepAudioClips: []
   FootstepAudioVolume: 0.5
   JumpHeight: 1.2
-  Gravity: -15
   JumpTimeout: 0.5
   FallTimeout: 0.15
   Grounded: 1
@@ -201,7 +200,7 @@ MonoBehaviour:
   GroundedRadius: 0.28
   GroundLayers:
     serializedVersion: 2
-    m_Bits: 513
+    m_Bits: 1
 --- !u!114 &7292828519420468114
 MonoBehaviour:
   m_ObjectHideFlags: 0

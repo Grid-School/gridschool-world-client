@@ -1,73 +1,6 @@
-// using UnityEngine;
-// using Core.Input;
-//
-// namespace Gameplay.Managers
-// {
-//     public class PlayerManager : MonoBehaviour
-//     {
-//         public static PlayerManager Instance { get; private set; }
-//         public GameObject LocalPlayer { get; private set; }
-//         public string LocalPlayerId { get; private set; }
-//         public PlayerCharacterInput LocalPlayerInput { get; private set; }
-//         public event System.Action<PlayerCharacterInput> OnLocalPlayerSpawned;
-//
-//         private GameObject playerPrefab;
-//
-//         private void Awake()
-//         {
-//             if (Instance != null && Instance != this)
-//             {
-//                 Destroy(this);
-//                 return;
-//             }
-//             Instance = this;
-//             Debug.Log($"[PlayerManager] Instance created. Instance is {gameObject.name} ({GetType()}).");
-//         }
-//
-//         public void Initialize(GameObject prefab)
-//         {
-//             playerPrefab = prefab;
-//             Debug.Log($"[PlayerManager] Initialized with player prefab: {(playerPrefab != null ? playerPrefab.name : "null")}");
-//         }
-//
-//         public void SpawnLocalPlayer(string id)
-//         {
-//             Debug.Log($"[PlayerManager] SpawnLocalPlayer called with id: {id}");
-//             if (playerPrefab == null)
-//             {
-//                 Debug.LogError("[PlayerManager] Player prefab is null!");
-//                 return;
-//             }
-//
-//             LocalPlayer = Instantiate(playerPrefab, Vector3.zero, Quaternion.identity);
-//             LocalPlayer.name = $"Player_{id}";
-//             LocalPlayerId = id; // Store the local player's ID
-//             Debug.Log($"[PlayerManager] Local player spawned at position: {LocalPlayer.transform.position}");
-//
-//             LocalPlayerInput = LocalPlayer.GetComponent<PlayerCharacterInput>();
-//             if (LocalPlayerInput == null)
-//             {
-//                 Debug.LogError($"[PlayerManager] PlayerCharacterInput component not found on player prefab!");
-//                 return;
-//             }
-//
-//             OnLocalPlayerSpawned?.Invoke(LocalPlayerInput);
-//         }
-//
-//         private void OnDestroy()
-//         {
-//             if (Instance == this)
-//             {
-//                 Instance = null;
-//             }
-//         }
-//     }
-// }
-
-using Core.Input;
 using UnityEngine;
+using Core.Input;
 using Core.Networking;
-using Gameplay.Player;
 
 namespace Gameplay.Managers
 {
@@ -89,15 +22,15 @@ namespace Gameplay.Managers
         {
             _playerPrefab = playerPrefab;
             _networkManager = networkManager;
-            Debug.Log("[PlayerManager] Initialized.");
+            //Debug.Log("[PlayerManager] Initialized.");
         }
 
         public void SpawnLocalPlayer(string id)
         {
-            Debug.Log($"[PlayerManager] SpawnLocalPlayer called with id: {id}");
+            //Debug.Log($"[PlayerManager] SpawnLocalPlayer called with id: {id}");
             if (_playerPrefab == null)
             {
-                Debug.LogError("[PlayerManager] Player prefab is not assigned!");
+                //Debug.LogError("[PlayerManager] Player prefab is not assigned!");
                 return;
             }
 
@@ -106,8 +39,10 @@ namespace Gameplay.Managers
                 Debug.LogWarning("[PlayerManager] Local player already exists. Destroying old player before spawning new one.");
                 Destroy(_localPlayer);
             }
-            
-            _localPlayer = Instantiate(_playerPrefab, Vector3.zero, Quaternion.identity);
+
+            Vector3 spawnPosition = CalculateSpawnPosition();
+
+            _localPlayer = Instantiate(_playerPrefab, spawnPosition, Quaternion.identity);
             _localPlayer.name = $"Player_{id}";
             _localPlayerTransform = _localPlayer.transform;
 
@@ -117,8 +52,20 @@ namespace Gameplay.Managers
                 Debug.LogError("[PlayerManager] Player prefab does not have a PlayerCharacterInput component!");
                 return;
             }
-            
+
             _localPlayerInput.isLocalPlayer = true;
+
+            // Ensure chat bubble is enabled
+            var chatBubble = _localPlayer.GetComponentInChildren<ChatBubble>();
+            if (chatBubble != null)
+            {
+                chatBubble.SetText("Test"); // Debug text
+                Debug.Log($"[PlayerManager] ChatBubble added to local player {id}");
+            }
+            else
+            {
+                Debug.LogError("[PlayerManager] ChatBubble not found on local player!");
+            }
 
             var playerController = _localPlayer.GetComponent<PlayerController>();
             if (playerController == null)
@@ -126,10 +73,52 @@ namespace Gameplay.Managers
                 Debug.LogError("[PlayerManager] Player prefab does not have a PlayerController component!");
                 return;
             }
-            playerController.Initialize(_networkManager, _localPlayerInput);
 
             Debug.Log($"[PlayerManager] Local player spawned at position: {_localPlayerTransform.position}");
+            
             OnLocalPlayerSpawned?.Invoke(_localPlayerInput);
+        }
+
+        private Vector3 CalculateSpawnPosition()
+        {
+            if (PlanetManager.Instance == null || PlanetManager.Instance.PlanetCenter == null)
+            {
+                Debug.LogError("[PlayerManager] PlanetManager or PlanetCenter is missing!");
+                return Vector3.up * 10f;
+            }
+
+            // Get the planet's center position
+            Vector3 planetCenter = PlanetManager.Instance.PlanetCenter.position;
+
+            // Get the planet's radius from the sphere collider
+            SphereCollider planetCollider = PlanetManager.Instance.PlanetCenter.GetComponent<SphereCollider>();
+            if (planetCollider == null)
+            {
+                Debug.LogError("[PlayerManager] Planet does not have a SphereCollider!");
+                return Vector3.up * 10f;
+            }
+            float planetRadius = planetCollider.radius * PlanetManager.Instance.PlanetCenter.localScale.x;
+
+            // Get the player's height from the capsule collider
+            CapsuleCollider playerCollider = _playerPrefab.GetComponent<CapsuleCollider>();
+            if (playerCollider == null)
+            {
+                Debug.LogError("[PlayerManager] Player prefab does not have a CapsuleCollider!");
+                return Vector3.up * 10f;
+            }
+            float playerHeight = playerCollider.height;
+
+            // Calculate the spawn distance (planet radius + half the player's height to place feet on the surface)
+            float spawnDistanceFromCenter = planetRadius + playerHeight * 0.5f;
+
+            // Define the spawn direction (e.g., above the planet along the world Y-axis)
+            Vector3 direction = Vector3.up; // You can modify this for random or specific spawn points
+
+            // Calculate the spawn position
+            Vector3 spawnPosition = planetCenter + direction * spawnDistanceFromCenter;
+
+            Debug.Log($"[PlayerManager] Calculated spawn position: {spawnPosition}, Planet Radius: {planetRadius}, Player Height: {playerHeight}");
+            return spawnPosition;
         }
     }
 }

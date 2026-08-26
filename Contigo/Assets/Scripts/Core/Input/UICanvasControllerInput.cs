@@ -16,7 +16,7 @@ namespace Core.Input
         {
             _playerManager = playerManager;
             TrySubscribe();
-            Debug.Log($"[UICanvasControllerInput] Initialized on {gameObject.name}.");
+            //Debug.Log($"[UICanvasControllerInput] Initialized on {gameObject.name}.");
         }
 
         private void TrySubscribe()
@@ -25,7 +25,7 @@ namespace Core.Input
             {
                 _playerManager.OnLocalPlayerSpawned += OnLocalPlayerSpawned;
                 _hasSubscribed = true;
-                Debug.Log("[UICanvasControllerInput] Subscribed to OnLocalPlayerSpawned.");
+                //Debug.Log("[UICanvasControllerInput] Subscribed to OnLocalPlayerSpawned.");
 
                 // Check if the player is already spawned
                 if (_playerManager.LocalPlayer != null)
@@ -35,7 +35,7 @@ namespace Core.Input
             }
             else
             {
-                Debug.LogError("[UICanvasControllerInput] PlayerManager is null during initialization!");
+                //Debug.LogError("[UICanvasControllerInput] PlayerManager is null during initialization!");
             }
         }
 

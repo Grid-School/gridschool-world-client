@@ -16,6 +16,7 @@ namespace Core.Data.ClientPlayerData
         public bool Jump { get; set; }
         public bool Grounded { get; set; }
         public bool FreeFall { get; set; }
+        public string ChatMessage { get; set; }
     }
 
     [Serializable]
@@ -83,5 +84,6 @@ namespace Core.Data.ClientPlayerData
         public Dictionary<string, Vector3Data> Velocities { get; set; }
         public Dictionary<string, CollisionData> Collisions { get; set; }
         public Dictionary<string, InkaAnimationState> Animations { get; set; }
+        public Dictionary<string, string> ChatMessages { get; set; }
     }
 }

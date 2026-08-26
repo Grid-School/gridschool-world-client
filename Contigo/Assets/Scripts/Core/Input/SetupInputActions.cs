@@ -16,19 +16,19 @@ namespace Core.Input
             _playerInput = GetComponent<PlayerInput>();
             if (_playerInput == null)
             {
-                Debug.LogError("[SetupInputActions] PlayerInput component not found on this GameObject!");
+                //Debug.LogError("[SetupInputActions] PlayerInput component not found on this GameObject!");
                 return;
             }
 
             if (inputActionsAsset == null)
             {
-                Debug.LogError("[SetupInputActions] Input Action Asset is not assigned in the Inspector!");
+                //Debug.LogError("[SetupInputActions] Input Action Asset is not assigned in the Inspector!");
                 return;
             }
 
             _playerInput.actions = Instantiate(inputActionsAsset);
 
-            Debug.Log("[SetupInputActions] Assigned cloned Input Action Asset to PlayerInput.");
+            //Debug.Log("[SetupInputActions] Assigned cloned Input Action Asset to PlayerInput.");
         }
 #endif
     }

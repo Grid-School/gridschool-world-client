@@ -5,11 +5,13 @@ TagManager:
   serializedVersion: 3
   tags:
   - RemotePlayer
+  - CinemachineTarget
+  - Planet
   layers:
   - Default
   - TransparentFX
   - Ignore Raycast
-  - 
+  - Ground
   - Water
   - UI
   - 

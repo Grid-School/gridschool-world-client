@@ -1,803 +1,251 @@
-﻿// using Core.Initialization;
-// using Core.Input;
-// using UnityEngine;
-// using Core.Networking;
-// using Newtonsoft.Json;
-// #if ENABLE_INPUT_SYSTEM 
-// using UnityEngine.InputSystem;
-// #endif
-//
-// namespace Gameplay.Player
-// {
-//     [RequireComponent(typeof(CharacterController))]
-// #if ENABLE_INPUT_SYSTEM 
-//     [RequireComponent(typeof(PlayerInput))]
-// #endif
-//     public class PlayerController : MonoBehaviour
-//     {
-//         [Header("Player")]
-//         [Tooltip("Move speed of the character in m/s")]
-//         public float MoveSpeed = 2.0f;
-//
-//         [Tooltip("Sprint speed of the character in m/s")]
-//         public float SprintSpeed = 5.335f;
-//
-//         [Tooltip("How fast the character turns to face movement direction")]
-//         [Range(0.0f, 0.3f)]
-//         public float RotationSmoothTime = 0.12f;
-//
-//         [Tooltip("Acceleration and deceleration")]
-//         public float SpeedChangeRate = 10.0f;
-//
-//         public AudioClip LandingAudioClip;
-//         public AudioClip[] FootstepAudioClips;
-//         [Range(0, 1)] public float FootstepAudioVolume = 0.5f;
-//
-//         [Space(10)]
-//         [Tooltip("The height the player can jump")]
-//         public float JumpHeight = 4.8f;
-//
-//         [Tooltip("The character uses its own gravity value. The engine default is -9.81f")]
-//         public float Gravity = -15.0f;
-//
-//         [Space(10)]
-//         [Tooltip("Time required to pass before being able to jump again. Set to 0f to instantly jump again")]
-//         public float JumpTimeout = 0.50f;
-//
-//         [Tooltip("Time required to pass before entering the fall state. Useful for walking down stairs")]
-//         public float FallTimeout = 0.15f;
-//
-//         [Header("Player Grounded")]
-//         [Tooltip("If the character is grounded or not. Not part of the CharacterController built in grounded check")]
-//         public bool Grounded = true;
-//
-//         [Tooltip("Useful for rough ground")]
-//         public float GroundedOffset = -0.14f;
-//
-//         [Tooltip("The radius of the grounded check. Should match the radius of the CharacterController")]
-//         public float GroundedRadius = 0.28f;
-//
-//         [Tooltip("What layers the character uses as ground")]
-//         public LayerMask GroundLayers;
-//
-//         // Player variables
-//         private float _speed;
-//         private float _animationBlend;
-//         private float _targetRotation = 0.0f;
-//         private float _rotationVelocity;
-//         private float _verticalVelocity;
-//         private float _terminalVelocity = 53.0f;
-//
-//         // Timeout variables
-//         private float _jumpTimeoutDelta;
-//         private float _fallTimeoutDelta;
-//
-//         // Animation IDs
-//         private int _animIDSpeed;
-//         private int _animIDGrounded;
-//         private int _animIDJump;
-//         private int _animIDFreeFall;
-//         private int _animIDMotionSpeed;
-//
-// #if ENABLE_INPUT_SYSTEM 
-//         private PlayerInput _playerInput;
-// #endif
-//         private Animator _animator;
-//         private CharacterController _controller;
-//         private PlayerCharacterInput _input;
-//         private GameObject _mainCamera;
-//
-//         private bool _hasAnimator;
-//         private bool _isRemotePlayer;
-//
-//         // Public properties
-//         public bool IsJumping { get; private set; }
-//         public float CurrentSpeed => _speed;
-//         public float MotionSpeed => _input != null ? (_input.analogMovement ? _input.move.magnitude : 1f) : 0f;
-//
-//         private bool IsCurrentDeviceMouse
-//         {
-//             get
-//             {
-// #if ENABLE_INPUT_SYSTEM
-//                 return _playerInput != null && _playerInput.currentControlScheme == "KeyboardMouse";
-// #else
-//                 return false;
-// #endif
-//             }
-//         }
-//
-//         private void Awake()
-//         {
-//             if (_mainCamera == null)
-//             {
-//                 _mainCamera = GameObject.FindGameObjectWithTag("MainCamera");
-//             }
-//             _isRemotePlayer = gameObject.tag == "RemotePlayer";
-//
-//             _controller = GetComponent<CharacterController>();
-//             _hasAnimator = TryGetComponent(out _animator);
-//         }
-//
-//         private void Start()
-//         {
-//             if (_isRemotePlayer) return;
-//
-//             if (_input == null)
-//                 _input = GetComponent<PlayerCharacterInput>();
-//
-// #if ENABLE_INPUT_SYSTEM 
-//             _playerInput = GetComponent<PlayerInput>();
-// #endif
-//
-//             if (_input == null || _controller == null || _playerInput == null)
-//             {
-//                 Debug.LogError("Missing required components on Player!", this);
-//                 return;
-//             }
-//
-//             AssignAnimationIDs();
-//             _jumpTimeoutDelta = JumpTimeout;
-//             _fallTimeoutDelta = FallTimeout;
-//         }
-//
-//         private void Update()
-//         {
-//             if (_isRemotePlayer) return;
-//
-//             JumpAndGravity();
-//             GroundedCheck();
-//             Move();
-//         }
-//
-//         private void AssignAnimationIDs()
-//         {
-//             _animIDSpeed = Animator.StringToHash("Speed");
-//             _animIDGrounded = Animator.StringToHash("Grounded");
-//             _animIDJump = Animator.StringToHash("Jump");
-//             _animIDFreeFall = Animator.StringToHash("FreeFall");
-//             _animIDMotionSpeed = Animator.StringToHash("MotionSpeed");
-//         }
-//
-//         private void GroundedCheck()
-//         {
-//             Vector3 spherePosition = new Vector3(transform.position.x, transform.position.y - GroundedOffset,
-//                 transform.position.z);
-//             Grounded = Physics.CheckSphere(spherePosition, GroundedRadius, GroundLayers,
-//                 QueryTriggerInteraction.Ignore);
-//
-//             if (_hasAnimator && _animator != null)
-//             {
-//                 _animator.SetBool(_animIDGrounded, Grounded);
-//             }
-//         }
-//
-//         private void Move()
-//         {
-//             if (_input == null || _controller == null) return;
-//
-//             // Determine target speed based on sprint state
-//             float targetSpeed = _input.sprint ? SprintSpeed : MoveSpeed;
-//             if (_input.move == Vector2.zero)
-//             {
-//                 targetSpeed = 0.0f;
-//                 _input.sprint = false; // Force-clear sprint when not moving
-//             }
-//
-//             float currentHorizontalSpeed = new Vector3(_controller.velocity.x, 0.0f, _controller.velocity.z).magnitude;
-//             float speedOffset = 0.1f;
-//             float inputMagnitude = _input.analogMovement ? _input.move.magnitude : 1f;
-//
-//             // Smoothly adjust the current speed toward the target speed
-//             if (currentHorizontalSpeed < targetSpeed - speedOffset || currentHorizontalSpeed > targetSpeed + speedOffset)
-//             {
-//                 _speed = Mathf.Lerp(currentHorizontalSpeed, targetSpeed * inputMagnitude, Time.deltaTime * SpeedChangeRate);
-//                 _speed = Mathf.Round(_speed * 1000f) / 1000f;
-//             }
-//             else
-//             {
-//                 _speed = targetSpeed;
-//             }
-//
-//             if (targetSpeed == 0.0f)
-//             {
-//                 _speed = 0.0f;
-//             }
-//
-//             _animationBlend = Mathf.Lerp(_animationBlend, targetSpeed, Time.deltaTime * SpeedChangeRate);
-//             if (_animationBlend < 0.01f || targetSpeed == 0.0f) _animationBlend = 0f;
-//
-//             Vector3 movement = Vector3.zero;
-//             if (_input.move != Vector2.zero)
-//             {
-//                 if (_input.move.y >= 0)
-//                 {
-//                     Vector3 inputDirection = new Vector3(_input.move.x, 0.0f, _input.move.y).normalized;
-//                     float targetAngle = Mathf.Atan2(inputDirection.x, inputDirection.z) * Mathf.Rad2Deg;
-//                     _targetRotation = (_mainCamera != null ? _mainCamera.transform.eulerAngles.y : 0f) + targetAngle;
-//                     float rotation = Mathf.SmoothDampAngle(transform.eulerAngles.y, _targetRotation, ref _rotationVelocity, RotationSmoothTime);
-//                     transform.rotation = Quaternion.Euler(0.0f, rotation, 0.0f);
-//
-//                     Vector3 targetDirection = Quaternion.Euler(0.0f, _targetRotation, 0.0f) * Vector3.forward;
-//                     movement = targetDirection.normalized;
-//                 }
-//                 else
-//                 {
-//                     Vector3 backwardInput = new Vector3(_input.move.x, 0.0f, _input.move.y);
-//                     movement = (transform.right * backwardInput.x - transform.forward * Mathf.Abs(backwardInput.z)).normalized;
-//                 }
-//             }
-//
-//             if (_speed > 0) Debug.Log($"[MOVE EXECUTED] Final movement={movement} | speed={_speed} | verticalVelocity={_verticalVelocity}");
-//
-//             _controller.Move(movement * (_speed * Time.deltaTime) + new Vector3(0.0f, _verticalVelocity, 0.0f) * Time.deltaTime);
-//
-//             SendMovementToServer(inputMagnitude);
-//
-//             if (_hasAnimator && _animator != null)
-//             {
-//                 _animator.SetFloat(_animIDSpeed, _animationBlend);
-//                 _animator.SetFloat(_animIDMotionSpeed, inputMagnitude);
-//             }
-//         }
-//
-//         private bool isSendingMovement = false;
-//         private float lastLogTime = 0;
-//         private float logInterval = 0.1f;
-//
-//         private void SendMovementToServer(float inputMagnitude)
-//         {
-//             if (isSendingMovement || GameInitializer.NetworkManagerInstance == null) return;
-//             isSendingMovement = true;
-//
-//             var inputMessage = new InputMessage
-//             {
-//                 X = transform.position.x,
-//                 Y = transform.position.y,
-//                 Z = transform.position.z,
-//                 Angle = transform.eulerAngles.y,
-//                 Speed = _animationBlend,
-//                 MotionSpeed = inputMagnitude,
-//                 Jump = IsJumping,
-//                 Grounded = Grounded,
-//                 FreeFall = !Grounded && _fallTimeoutDelta <= 0f
-//             };
-//             string json = JsonConvert.SerializeObject(inputMessage);
-//             GameInitializer.NetworkManagerInstance.SendMessage(json);
-//
-//             if (Time.time - lastLogTime >= logInterval)
-//             {
-//                 Debug.Log($"[PlayerController] Sent position: ({inputMessage.X}, {inputMessage.Y}, {inputMessage.Z}), Jump={inputMessage.Jump}, Grounded={inputMessage.Grounded}, FreeFall={inputMessage.FreeFall}");
-//                 lastLogTime = Time.time;
-//             }
-//             isSendingMovement = false;
-//         }
-//
-//         public void InjectInput(PlayerCharacterInput input)
-//         {
-//             _input = input;
-//             AssignAnimationIDs();
-//             _jumpTimeoutDelta = JumpTimeout;
-//             _fallTimeoutDelta = FallTimeout;
-//         }
-//
-//         private void JumpAndGravity()
-//         {
-//             if (_controller == null) return;
-//
-//             if (Grounded)
-//             {
-//                 _fallTimeoutDelta = FallTimeout;
-//
-//                 if (_hasAnimator && _animator != null)
-//                 {
-//                     _animator.SetBool(_animIDJump, false);
-//                     _animator.SetBool(_animIDFreeFall, false);
-//                 }
-//
-//                 if (_verticalVelocity < 0.0f)
-//                 {
-//                     _verticalVelocity = -2f;
-//                 }
-//
-//                 if (_input != null && _input.jump && _jumpTimeoutDelta <= 0.0f)
-//                 {
-//                     _verticalVelocity = Mathf.Sqrt(JumpHeight * -2f * Gravity);
-//
-//                     if (_hasAnimator && _animator != null)
-//                     {
-//                         _animator.SetBool(_animIDJump, true);
-//                         IsJumping = true;
-//                     }
-//                 }
-//
-//                 if (_jumpTimeoutDelta >= 0.0f)
-//                 {
-//                     _jumpTimeoutDelta -= Time.deltaTime;
-//                 }
-//             }
-//             else
-//             {
-//                 _jumpTimeoutDelta = JumpTimeout;
-//
-//                 if (_fallTimeoutDelta >= 0.0f)
-//                 {
-//                     _fallTimeoutDelta -= Time.deltaTime;
-//                 }
-//                 else
-//                 {
-//                     if (_hasAnimator && _animator != null)
-//                     {
-//                         _animator.SetBool(_animIDFreeFall, true);
-//                     }
-//                 }
-//
-//                 if (_input != null)
-//                 {
-//                     _input.jump = false;
-//                 }
-//                 IsJumping = false;
-//             }
-//
-//             if (_verticalVelocity < _terminalVelocity)
-//             {
-//                 _verticalVelocity += Gravity * Time.deltaTime;
-//             }
-//         }
-//
-//         private void OnDrawGizmosSelected()
-//         {
-//             Color transparentGreen = new Color(0.0f, 1.0f, 0.0f, 0.35f);
-//             Color transparentRed = new Color(1.0f, 0.0f, 0.0f, 0.35f);
-//
-//             if (Grounded) Gizmos.color = transparentGreen;
-//             else Gizmos.color = transparentRed;
-//
-//             Gizmos.DrawSphere(
-//                 new Vector3(transform.position.x, transform.position.y - GroundedOffset, transform.position.z),
-//                 GroundedRadius);
-//         }
-//
-//         private void OnFootstep(AnimationEvent animationEvent)
-//         {
-//             if (_isRemotePlayer || _controller == null) return;
-//
-//             if (animationEvent.animatorClipInfo.weight > 0.5f)
-//             {
-//                 if (FootstepAudioClips != null && FootstepAudioClips.Length > 0)
-//                 {
-//                     var index = Random.Range(0, FootstepAudioClips.Length);
-//                     AudioSource.PlayClipAtPoint(FootstepAudioClips[index], transform.TransformPoint(_controller.center), FootstepAudioVolume);
-//                 }
-//                 else
-//                 {
-//                     Debug.LogWarning("FootstepAudioClips is not assigned or empty!", this);
-//                 }
-//             }
-//         }
-//
-//         private void OnLand(AnimationEvent animationEvent)
-//         {
-//             if (_isRemotePlayer || _controller == null) return;
-//
-//             if (animationEvent.animatorClipInfo.weight > 0.5f)
-//             {
-//                 if (LandingAudioClip != null)
-//                 {
-//                     AudioSource.PlayClipAtPoint(LandingAudioClip, transform.TransformPoint(_controller.center), FootstepAudioVolume);
-//                 }
-//                 else
-//                 {
-//                     Debug.LogWarning("LandingAudioClip is not assigned!", this);
-//                 }
-//             }
-//         }
-//     }
-//
-//     // Define InputMessage to match server expectations
-//     public class InputMessage
-//     {
-//         public float X { get; set; }
-//         public float Y { get; set; }
-//         public float Z { get; set; }
-//         public float Angle { get; set; }
-//         public float Speed { get; set; }
-//         public float MotionSpeed { get; set; }
-//         public bool Jump { get; set; }
-//         public bool Grounded { get; set; }
-//         public bool FreeFall { get; set; }
-//     }
-// }
-
-
-using UnityEngine;
-using Core.Networking;
+﻿using UnityEngine;
+using System.Collections.Generic;
 using Core.Input;
-#if ENABLE_INPUT_SYSTEM 
-using UnityEngine.InputSystem;
-#endif
 
-namespace Gameplay.Player
+[RequireComponent(typeof(Rigidbody), typeof(CapsuleCollider))]
+public class PlayerController : MonoBehaviour
 {
-    [RequireComponent(typeof(CharacterController))]
-#if ENABLE_INPUT_SYSTEM 
-    [RequireComponent(typeof(PlayerInput))]
-#endif
-    public class PlayerController : MonoBehaviour
+    [Header("Movement")]
+    public float MoveSpeed = 2f;
+    public float SprintSpeed = 5.335f;
+    public float SpeedChangeRate = 10f;
+
+    [Header("Jumping")]
+    public float JumpHeight = 18.2f;
+    public float JumpCooldown = 0.1f; // Minimum time between jumps
+    public float GroundCheckDistance = 0.1f; // Distance for raycast ground check
+    
+    [Header("Shader")]
+    public Material skyboxMaterial;
+
+    private Rigidbody _rb;
+    private Animator _anim;
+    private CapsuleCollider _col;
+
+    private Vector2 _moveInput;
+    private bool _sprintInput;
+
+    // Jump and ground state variables
+    private bool _jumpRequest = false;    // Set when a jump is requested in Update
+    private bool _releasedJump = true;    // Tracks if jump key was released since last jump
+    private float _lastJumpTime = -999f;  // Timestamp of the last jump
+    private HashSet<Collider> _groundColliders = new HashSet<Collider>(); // Track ground colliders
+    private bool _isGrounded;             // Current grounded state
+
+    // Animator hashes
+    private int _hSpeed, _hMotion, _hJump, _hGrounded, _hFreeFall;
+
+    // Previous states for change detection
+    private bool _prevIsGrounded;
+    private bool _prevJumpRequest;
+    private bool _prevReleasedJump;
+    private bool _prevJumpPressed;
+    private bool _prevAnimGrounded;
+    private bool _prevAnimFreeFall;
+    private bool _prevAnimJump;
+    
+    private PlayerCharacterInput _input;
+
+    void Awake()
     {
-        [Header("Player")]
-        [Tooltip("Move speed of the character in m/s")]
-        public float MoveSpeed = 2.0f;
+        _rb = GetComponent<Rigidbody>();
+        _anim = GetComponent<Animator>();
+        _col = GetComponent<CapsuleCollider>();
+        _input = GetComponent<PlayerCharacterInput>();
 
-        [Tooltip("Sprint speed of the character in m/s")]
-        public float SprintSpeed = 5.335f;
+        _rb.freezeRotation = true;
+        _rb.interpolation = RigidbodyInterpolation.Interpolate;
+        _rb.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
 
-        [Tooltip("How fast the character turns to face movement direction")]
-        [Range(0.0f, 0.3f)]
-        public float RotationSmoothTime = 0.12f;
+        _hSpeed = Animator.StringToHash("Speed");
+        _hMotion = Animator.StringToHash("MotionSpeed");
+        _hJump = Animator.StringToHash("Jump");
+        _hGrounded = Animator.StringToHash("Grounded");
+        _hFreeFall = Animator.StringToHash("FreeFall");
 
-        [Tooltip("Acceleration and deceleration")]
-        public float SpeedChangeRate = 10.0f;
+        // Initial state allows jumping
+        _releasedJump = true;
+    }
 
-        public AudioClip LandingAudioClip;
-        public AudioClip[] FootstepAudioClips;
-        [Range(0, 1)] public float FootstepAudioVolume = 0.5f;
-
-        [Space(10)]
-        [Tooltip("The height the player can jump")]
-        public float JumpHeight = 4.8f;
-
-        [Tooltip("The character uses its own gravity value. The engine default is -9.81f")]
-        public float Gravity = -15.0f;
-
-        [Space(10)]
-        [Tooltip("Time required to pass before being able to jump again. Set to 0f to instantly jump again")]
-        public float JumpTimeout = 0.50f;
-
-        [Tooltip("Time required to pass before entering the fall state. Useful for walking down stairs")]
-        public float FallTimeout = 0.15f;
-
-        [Header("Player Grounded")]
-        [Tooltip("If the character is grounded or not. Not part of the CharacterController built in grounded check")]
-        public bool Grounded = true;
-
-        [Tooltip("Useful for rough ground")]
-        public float GroundedOffset = -0.14f;
-
-        [Tooltip("The radius of the grounded check. Should match the radius of the CharacterController")]
-        public float GroundedRadius = 0.28f;
-
-        [Tooltip("What layers the character uses as ground")]
-        public LayerMask GroundLayers;
-
-        private float _speed;
-        private float _animationBlend;
-        private float _targetRotation = 0.0f;
-        private float _rotationVelocity;
-        private float _verticalVelocity;
-        private float _terminalVelocity = 53.0f;
-
-        private float _jumpTimeoutDelta;
-        private float _fallTimeoutDelta;
-
-        private int _animIDSpeed;
-        private int _animIDGrounded;
-        private int _animIDJump;
-        private int _animIDFreeFall;
-        private int _animIDMotionSpeed;
-
-        private float _lastSendTime = 0f;
-        private const float SendInterval = 0.1f;
-
-#if ENABLE_INPUT_SYSTEM 
-        private PlayerInput _playerInput;
-#endif
-        private Animator _animator;
-        private CharacterController _controller;
-        private PlayerCharacterInput _input;
-        private GameObject _mainCamera;
-        private InkaNetworkManager _networkManager;
-
-        private bool _hasAnimator;
-        private bool _isRemotePlayer;
-
-        public bool IsJumping { get; private set; }
-        public float CurrentSpeed => _speed;
-        public float MotionSpeed => _input != null ? (_input.analogMovement ? _input.move.magnitude : 1f) : 0f;
-
-        private bool IsCurrentDeviceMouse
+    void Update()
+    {
+        if (_input == null)
         {
-            get
-            {
-#if ENABLE_INPUT_SYSTEM
-                return _playerInput != null && _playerInput.currentControlScheme == "KeyboardMouse";
-#else
-                return false;
-#endif
-            }
+            Debug.LogError("[PlayerController] PlayerCharacterInput component not found!");
+            return;
+        }
+        
+        // Input handling
+        _moveInput = _input.move;
+        _sprintInput = _input.sprint;
+        bool jumpPressed = _input.jump;
+
+        // Update grounded state
+        _isGrounded = IsGrounded();
+
+        // Detect jump input edges
+        bool risingEdge = jumpPressed && !_prevJumpPressed;
+        bool fallingEdge = !jumpPressed && _prevJumpPressed;
+
+        // Jump logic
+        if (risingEdge && _isGrounded && Time.time - _lastJumpTime > JumpCooldown)
+        {
+            _jumpRequest = true;
+            _lastJumpTime = Time.time;
         }
 
-        public void Initialize(InkaNetworkManager networkManager, PlayerCharacterInput input)
+        if (fallingEdge)
         {
-            _networkManager = networkManager;
-            _input = input;
-
-            if (_mainCamera == null)
-            {
-                _mainCamera = GameObject.FindGameObjectWithTag("MainCamera");
-            }
-            _isRemotePlayer = gameObject.tag == "RemotePlayer";
-
-            _controller = GetComponent<CharacterController>();
-            _hasAnimator = TryGetComponent(out _animator);
-
-#if ENABLE_INPUT_SYSTEM 
-            _playerInput = GetComponent<PlayerInput>();
-#endif
-            
-            if (_isRemotePlayer)
-            {
-                // Disable local components for remote players
-                if (_playerInput != null) Destroy(_playerInput);
-                return; // Skip further initialization for remote players
-            }
-
-            if (_input == null || _controller == null || (_playerInput == null && !_isRemotePlayer))
-            {
-                Debug.LogError("Missing required components on Player!", this);
-                return;
-            }
-
-            AssignAnimationIDs();
-            _jumpTimeoutDelta = JumpTimeout;
-            _fallTimeoutDelta = FallTimeout;
+            _releasedJump = true;
         }
 
-        private void Update()
-        {
-            if (_isRemotePlayer) return;
+        // Update animator parameters
+        _anim.SetBool(_hGrounded, _isGrounded);
+        _anim.SetBool(_hFreeFall, !_isGrounded);
+        if (_isGrounded)
+            _anim.SetBool(_hJump, false);
 
-            JumpAndGravity();
-            GroundedCheck();
-            Move();
+        // Check for any boolean state changes and log if detected
+        if (_isGrounded != _prevIsGrounded ||
+            _jumpRequest != _prevJumpRequest ||
+            _releasedJump != _prevReleasedJump ||
+            jumpPressed != _prevJumpPressed ||
+            _anim.GetBool(_hGrounded) != _prevAnimGrounded ||
+            _anim.GetBool(_hFreeFall) != _prevAnimFreeFall ||
+            _anim.GetBool(_hJump) != _prevAnimJump)
+        {
+            LogStateChanges(jumpPressed);
         }
 
-        private void AssignAnimationIDs()
+        // Update previous states
+        _prevIsGrounded = _isGrounded;
+        _prevJumpRequest = _jumpRequest;
+        _prevReleasedJump = _releasedJump;
+        _prevJumpPressed = jumpPressed;
+        _prevAnimGrounded = _anim.GetBool(_hGrounded);
+        _prevAnimFreeFall = _anim.GetBool(_hFreeFall);
+        _prevAnimJump = _anim.GetBool(_hJump);
+    }
+
+    void FixedUpdate()
+    {
+        var pm = PlanetManager.Instance; // Assumes a singleton managing planet properties
+        if (pm == null || pm.PlanetCenter == null) return;
+
+        Vector3 inward = (pm.PlanetCenter.position - transform.position).normalized;
+        Vector3 outward = -inward;
+        
+        // Send player position to shader
+        if (skyboxMaterial != null)
         {
-            _animIDSpeed = Animator.StringToHash("Speed");
-            _animIDGrounded = Animator.StringToHash("Grounded");
-            _animIDJump = Animator.StringToHash("Jump");
-            _animIDFreeFall = Animator.StringToHash("FreeFall");
-            _animIDMotionSpeed = Animator.StringToHash("MotionSpeed");
+            skyboxMaterial.SetVector("_PlayerUp", outward); // Use GetUp() equivalent
         }
 
-        private void GroundedCheck()
+        // Execute jump
+        if (_jumpRequest)
         {
-            Vector3 spherePosition = new Vector3(transform.position.x, transform.position.y - GroundedOffset,
-                transform.position.z);
-            Grounded = Physics.CheckSphere(spherePosition, GroundedRadius, GroundLayers,
-                QueryTriggerInteraction.Ignore);
-
-            if (_hasAnimator && _animator != null)
-            {
-                _animator.SetBool(_animIDGrounded, Grounded);
-            }
+            float jumpVelocity = Mathf.Sqrt(JumpHeight * 20f * pm.GravityForce);
+            _rb.AddForce(outward * jumpVelocity, ForceMode.VelocityChange);
+            _anim.SetBool(_hJump, true);
+            _jumpRequest = false;
         }
 
-        private void Move()
+        // Apply gravity
+        _rb.AddForce(inward * pm.GravityForce, ForceMode.Acceleration);
+
+        // Movement handling
+        float speed = _sprintInput ? SprintSpeed : MoveSpeed;
+        Vector3 camF = Vector3.ProjectOnPlane(Camera.main.transform.forward, inward).normalized;
+        Vector3 camR = Vector3.ProjectOnPlane(Camera.main.transform.right, inward).normalized;
+
+        Vector3 desired = (_moveInput.sqrMagnitude > 0.001f)
+            ? (camR * _moveInput.x + camF * _moveInput.y).normalized * speed
+            : Vector3.zero;
+
+        Vector3 worldV = _rb.linearVelocity;
+        Vector3 vin = Vector3.Project(worldV, inward);
+        Vector3 vplan = Vector3.ProjectOnPlane(worldV, inward);
+
+        if (_isGrounded && Vector3.Dot(worldV, inward) > 0f)
+            vin = Vector3.zero;
+
+        vplan = Vector3.Lerp(vplan, desired, Time.fixedDeltaTime * SpeedChangeRate);
+        _rb.linearVelocity = vplan + vin;
+
+        if (desired.sqrMagnitude > 0.001f)
         {
-            if (_input == null || _controller == null)
-            {
-                return;
-            }
-
-            float targetSpeed = _input.sprint ? SprintSpeed : MoveSpeed;
-            if (_input.move == Vector2.zero)
-            {
-                targetSpeed = 0.0f;
-                _input.sprint = false;
-            }
-
-            float currentHorizontalSpeed = new Vector3(_controller.velocity.x, 0.0f, _controller.velocity.z).magnitude;
-            float speedOffset = 0.1f;
-            float inputMagnitude = _input.analogMovement ? _input.move.magnitude : 1f;
-
-            if (currentHorizontalSpeed < targetSpeed - speedOffset || currentHorizontalSpeed > targetSpeed + speedOffset)
-            {
-                _speed = Mathf.Lerp(currentHorizontalSpeed, targetSpeed * inputMagnitude, Time.deltaTime * SpeedChangeRate);
-                _speed = Mathf.Round(_speed * 1000f) / 1000f;
-            }
-            else
-            {
-                _speed = targetSpeed;
-            }
-
-            if (targetSpeed == 0.0f)
-            {
-                _speed = 0.0f;
-            }
-
-            _animationBlend = Mathf.Lerp(_animationBlend, targetSpeed, Time.deltaTime * SpeedChangeRate);
-            if (_animationBlend < 0.01f || targetSpeed == 0.0f) _animationBlend = 0f;
-
-            Vector3 movement = Vector3.zero;
-            if (_input.move != Vector2.zero)
-            {
-                if (_input.move.y >= 0)
-                {
-                    Vector3 inputDirection = new Vector3(_input.move.x, 0.0f, _input.move.y).normalized;
-                    float targetAngle = Mathf.Atan2(inputDirection.x, inputDirection.z) * Mathf.Rad2Deg;
-                    _targetRotation = (_mainCamera != null ? _mainCamera.transform.eulerAngles.y : 0f) + targetAngle;
-                    float rotation = Mathf.SmoothDampAngle(transform.eulerAngles.y, _targetRotation, ref _rotationVelocity, RotationSmoothTime);
-                    transform.rotation = Quaternion.Euler(0.0f, rotation, 0.0f);
-
-                    Vector3 targetDirection = Quaternion.Euler(0.0f, _targetRotation, 0.0f) * Vector3.forward;
-                    movement = targetDirection.normalized;
-                }
-                else
-                {
-                    Vector3 backwardInput = new Vector3(_input.move.x, 0.0f, _input.move.y);
-                    movement = (transform.right * backwardInput.x - transform.forward * Mathf.Abs(backwardInput.z)).normalized;
-                }
-            }
-
-            _controller.Move(movement * (_speed * Time.deltaTime) + new Vector3(0.0f, _verticalVelocity, 0.0f) * Time.deltaTime);
-
-            SendMovementToServer(inputMagnitude);
-
-            if (_hasAnimator && _animator != null)
-            {
-                _animator.SetFloat(_animIDSpeed, _animationBlend);
-                _animator.SetFloat(_animIDMotionSpeed, inputMagnitude);
-            }
+            Quaternion look = Quaternion.LookRotation(desired.normalized, outward);
+            _rb.MoveRotation(Quaternion.Slerp(_rb.rotation, look, Time.fixedDeltaTime * 10f));
         }
 
-        private async void SendMovementToServer(float inputMagnitude)
+        _anim.SetFloat(_hSpeed, _rb.linearVelocity.magnitude);
+        _anim.SetFloat(_hMotion, _moveInput.magnitude);
+    }
+
+    void OnCollisionEnter(Collision collision)
+    {
+        foreach (var contact in collision.contacts)
         {
-            if (Time.time - _lastSendTime < SendInterval || _networkManager == null) return;
-
-            _lastSendTime = Time.time;
-
-            var inputMessage = new InputMessage
+            if (Vector3.Dot(contact.normal, GetUp()) > 0.5f)
             {
-                X = transform.position.x,
-                Y = transform.position.y,
-                Z = transform.position.z,
-                Angle = transform.eulerAngles.y,
-                Speed = _animationBlend,
-                MotionSpeed = inputMagnitude,
-                Jump = IsJumping,
-                Grounded = Grounded,
-                FreeFall = !Grounded && _fallTimeoutDelta <= 0f
-            };
-            string json = JsonUtility.ToJson(inputMessage);
-            await _networkManager.SendMessageAsync(json);
-        }
-
-        public void InjectInput(PlayerCharacterInput input)
-        {
-            _input = input;
-            AssignAnimationIDs();
-            _jumpTimeoutDelta = JumpTimeout;
-            _fallTimeoutDelta = FallTimeout;
-        }
-
-        private void JumpAndGravity()
-        {
-            if (_controller == null) return;
-
-            if (Grounded)
-            {
-                _fallTimeoutDelta = FallTimeout;
-
-                if (_hasAnimator && _animator != null)
-                {
-                    _animator.SetBool(_animIDJump, false);
-                    _animator.SetBool(_animIDFreeFall, false);
-                }
-
-                if (_verticalVelocity < 0.0f)
-                {
-                    _verticalVelocity = -2f;
-                }
-
-                if (_input != null && _input.jump && _jumpTimeoutDelta <= 0.0f)
-                {
-                    _verticalVelocity = Mathf.Sqrt(JumpHeight * -2f * Gravity);
-
-                    if (_hasAnimator && _animator != null)
-                    {
-                        _animator.SetBool(_animIDJump, true);
-                        IsJumping = true;
-                    }
-                }
-
-                if (_jumpTimeoutDelta >= 0.0f)
-                {
-                    _jumpTimeoutDelta -= Time.deltaTime;
-                }
-            }
-            else
-            {
-                _jumpTimeoutDelta = JumpTimeout;
-
-                if (_fallTimeoutDelta >= 0.0f)
-                {
-                    _fallTimeoutDelta -= Time.deltaTime;
-                }
-                else
-                {
-                    if (_hasAnimator && _animator != null)
-                    {
-                        _animator.SetBool(_animIDFreeFall, true);
-                    }
-                }
-
-                if (_input != null)
-                {
-                    _input.jump = false;
-                }
-                IsJumping = false;
-            }
-
-            if (_verticalVelocity < _terminalVelocity)
-            {
-                _verticalVelocity += Gravity * Time.deltaTime;
-            }
-        }
-
-        private void OnDrawGizmosSelected()
-        {
-            Color transparentGreen = new Color(0.0f, 1.0f, 0.0f, 0.35f);
-            Color transparentRed = new Color(1.0f, 0.0f, 0.0f, 0.35f);
-
-            if (Grounded) Gizmos.color = transparentGreen;
-            else Gizmos.color = transparentRed;
-
-            Gizmos.DrawSphere(
-                new Vector3(transform.position.x, transform.position.y - GroundedOffset, transform.position.z),
-                GroundedRadius);
-        }
-
-        private void OnFootstep(AnimationEvent animationEvent)
-        {
-            if (_isRemotePlayer || _controller == null) return;
-
-            if (animationEvent.animatorClipInfo.weight > 0.5f)
-            {
-                if (FootstepAudioClips != null && FootstepAudioClips.Length > 0)
-                {
-                    var index = Random.Range(0, FootstepAudioClips.Length);
-                    AudioSource.PlayClipAtPoint(FootstepAudioClips[index], transform.TransformPoint(_controller.center), FootstepAudioVolume);
-                }
-            }
-        }
-
-        private void OnLand(AnimationEvent animationEvent)
-        {
-            if (_isRemotePlayer || _controller == null) return;
-
-            if (animationEvent.animatorClipInfo.weight > 0.5f)
-            {
-                if (LandingAudioClip != null)
-                {
-                    AudioSource.PlayClipAtPoint(LandingAudioClip, transform.TransformPoint(_controller.center), FootstepAudioVolume);
-                }
+                _groundColliders.Add(collision.collider);
+                break; // One qualifying contact is enough per collision
             }
         }
     }
-    
-    [System.Serializable]
-    public struct InputMessage
+
+    void OnCollisionExit(Collision collision)
     {
-        public float X;
-        public float Y;
-        public float Z;
-        public float Angle;
-        public float Speed;
-        public float MotionSpeed;
-        public bool Jump;
-        public bool Grounded;
-        public bool FreeFall;
+        _groundColliders.Remove(collision.collider);
+    }
+
+    bool IsGrounded()
+    {
+        // Primary check: collision-based grounding
+        if (_groundColliders.Count > 0)
+            return true;
+
+        // Fallback: raycast downward to detect ground
+        Vector3 down = -GetUp();
+        Vector3 start = transform.position + GetUp() * (_col.height * 0.5f - _col.radius);
+        float distance = _col.radius + GroundCheckDistance;
+
+        if (Physics.Raycast(start, down, out RaycastHit hit, distance))
+        {
+            if (Vector3.Dot(hit.normal, GetUp()) > 0.5f)
+            {
+                _groundColliders.Add(hit.collider);
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    Vector3 GetUp()
+    {
+        var pm = PlanetManager.Instance;
+        return pm == null || pm.PlanetCenter == null
+            ? Vector3.up
+            : (transform.position - pm.PlanetCenter.position).normalized;
+    }
+
+    void LogStateChanges(bool jumpPressed)
+    {
+        float verticalDot = Vector3.Dot(_rb.linearVelocity, GetUp());
+        Vector3 position = transform.position;
+
+        Debug.Log($"[JUMP-STATE] Time: {Time.time:F2} | " +
+                  $"isGrounded: {_isGrounded} | " +
+                  $"jumpRequest: {_jumpRequest} | " +
+                  $"releasedJump: {_releasedJump} | " +
+                  $"jumpPressed: {jumpPressed} | " +
+                  $"animGrounded: {_anim.GetBool(_hGrounded)} | " +
+                  $"animFreeFall: {_anim.GetBool(_hFreeFall)} | " +
+                  $"animJump: {_anim.GetBool(_hJump)} | " +
+                  $"groundContacts: {_groundColliders.Count} | " +
+                  $"timeSinceLastJump: {Time.time - _lastJumpTime:F2} | " +
+                  $"verticalVelocityDot: {verticalDot:F2} | " +
+                  $"position: ({position.x:F2}, {position.y:F2}, {position.z:F2})");
     }
 }
