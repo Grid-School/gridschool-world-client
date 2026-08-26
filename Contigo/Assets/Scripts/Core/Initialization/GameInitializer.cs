@@ -291,7 +291,8 @@ namespace Core.Initialization
 {
     public class GameInitializer : MonoBehaviour
     {
-        [SerializeField] private string serverUri = "wss://api.inkaverse.co/ws"; 
+        [Tooltip("Leave empty. The endpoint is resolved automatically: localhost in the Editor, by page hostname in WebGL builds, or ?server= on the URL. Fill only to force a specific server.")]
+        [SerializeField] private string serverUriOverride = "";
         [SerializeField] private GameObject playerPrefab;
         [SerializeField] private Camera mainCamera;
         [SerializeField] private GameObject uiCanvasControllerPrefab;
@@ -344,7 +345,7 @@ namespace Core.Initialization
             switch (_state)
             {
                 case InitializationState.NotStarted:
-                    _networkManager = InkaNetworkManager.CreateInstance(serverUri);
+                    _networkManager = InkaNetworkManager.CreateInstance(ServerEndpoint.Resolve(serverUriOverride));
                     _networkConnectionStartTime = Time.time;
                     StartCoroutine(ConnectNetworkManager());
                     _state = InitializationState.NetworkConnecting;
