@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The world — staging</title>
+<meta name="description" content="Staging build surface for the GridSchool world client.">
+<meta name="robots" content="noindex">
+<style>
+  :root { --bg:#05070c; --line:#16233d; --cyan:#28e1ff; --text:#d7e2f0; --muted:#7f92ab; }
+  * { box-sizing:border-box; margin:0; }
+  body {
+    background:var(--bg); color:var(--text); font:400 16px/1.6 "IBM Plex Mono",ui-monospace,monospace;
+    min-height:100vh; display:grid; place-items:center;
+    background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px);
+    background-size:48px 48px; background-position:center;
+  }
+  main { max-width:34rem; padding:2rem; border:1px solid var(--line); background:rgba(5,7,12,.92); }
+  h1 { font-size:1.1rem; letter-spacing:.08em; color:var(--cyan); margin-bottom:.75rem; }
+  p { color:var(--muted); margin-bottom:.75rem; }
+  code { color:var(--text); }
+  a { color:var(--cyan); }
+</style>
+</head>
+<body>
+<main>
+  <h1>THE WORLD — STAGING</h1>
+  <p>The web client build has not been published to this surface yet.
+     The world server itself is live; this page is the slot the Unity WebGL build deploys into.</p>
+  <p>Server health: <code id="h">checking…</code></p>
+  <p>Built in public by <a href="https://gridschool.org">GridSchool</a> students —
+     <a href="https://github.com/Grid-School/gridschool-world-client">source</a>.</p>
+</main>
+<script>
+  fetch("https://gridschool-world-staging.2q0rcr0ks5h5e.us-west-2.cs.amazonlightsail.com/health")
+    .then(r => { document.getElementById("h").textContent = r.status + (r.ok ? " OK" : " (GF-1: the world reports itself dead when empty)"); })
+    .catch(() => { document.getElementById("h").textContent = "unreachable"; });
+</script>
+</body>
+</html>

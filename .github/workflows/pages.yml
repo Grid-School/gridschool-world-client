@@ -1,0 +1,29 @@
+name: pages
+# Publishes web/ to play-staging.gridschool.org. The Unity WebGL build lands in
+# web/ (Build/ + StreamingAssets/) when one exists; until then this serves the
+# placeholder. Paths-filtered so Unity project churn does not redeploy the page.
+on:
+  push:
+    branches: [main]
+    paths: ["web/**", ".github/workflows/pages.yml"]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency: pages
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: web
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web
+      - id: deployment
+        uses: actions/deploy-pages@v4
