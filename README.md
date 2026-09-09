@@ -18,3 +18,19 @@ Scenes, models, and the brand look belong to the maintainer — students own **s
 
 Open `Contigo/Assets/Scenes/MainClientScene.unity`, point the server URL at
 `ws://localhost:8080/ws`, press Play. Two editor instances (or editor + WebGL build) = two humans.
+
+## Build and publish the web client (terminal, no editor UI)
+
+Pinned editor: `6000.0.39f1` with the WebGL module. From the repo root:
+
+```sh
+/Applications/Unity/Hub/Editor/6000.0.39f1/Unity.app/Contents/MacOS/Unity \
+  -batchmode -quit -projectPath Contigo -buildTarget WebGL \
+  -executeMethod WebGLBuild.Build -logFile /tmp/unity-webgl.log
+git add web && git commit -m "Publish web client" && git push
+```
+
+`WebGLBuild.Build` writes into `web/`; pushing `web/` to `main` is the deploy
+(`.github/workflows/pages.yml` → play-staging.gridschool.org). First build ~7 min,
+rebuilds ~30 s. Test any build against any server with `?server=wss://host/ws`.
+The server the page connects to is decided by hostname in `ServerEndpoint.cs`.
