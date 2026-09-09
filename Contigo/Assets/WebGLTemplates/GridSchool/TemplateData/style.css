@@ -1,0 +1,30 @@
+:root { --bg: #05070c; --line: #16233d; --cyan: #28e1ff; --text: #d7e2f0; --muted: #7f92ab; --red: #ff5c6c; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; background: var(--bg); color: var(--text); overflow: hidden;
+  font: 400 14px/1.5 "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace; }
+#unity-canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; background: var(--bg); }
+
+#loading { position: fixed; inset: 0; display: grid; place-content: center; gap: 14px; text-align: center;
+  background: var(--bg);
+  background-image: linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px);
+  background-size: 48px 48px; background-position: center; }
+#loading-word { color: var(--cyan); letter-spacing: .18em; font-size: 15px; }
+#loading-bar { width: 260px; height: 2px; background: var(--line); }
+#loading-fill { width: 0; height: 100%; background: var(--cyan); transition: width .2s linear; }
+#loading-note { color: var(--muted); font-size: 12px; max-width: 32rem; }
+#loading.failed #loading-fill { background: var(--red); }
+#loading.failed #loading-note { color: var(--red); }
+
+#warning { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); display: grid; gap: 6px; z-index: 2; }
+#warning div { padding: 6px 10px; border: 1px solid var(--line); background: rgba(5, 7, 12, .92); font-size: 12px; }
+#warning div.error { border-color: var(--red); color: var(--red); }
+#warning div.warning { color: #ffd166; }
+
+#foot { position: fixed; right: 12px; bottom: 10px; display: flex; gap: 12px; align-items: center;
+  font-size: 11px; color: var(--muted); letter-spacing: .06em; z-index: 2; }
+#foot a { color: var(--muted); text-decoration: none; }
+#foot a:hover { color: var(--cyan); }
+#fullscreen { border: 1px solid var(--line); background: rgba(5, 7, 12, .8); color: var(--text);
+  width: 26px; height: 26px; cursor: pointer; font: inherit; }
+#fullscreen:hover { border-color: var(--cyan); color: var(--cyan); }
+#foot-env::after { content: "\00b7"; margin-left: 12px; }

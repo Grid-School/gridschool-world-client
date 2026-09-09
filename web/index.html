@@ -1,40 +1,75 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>The world — staging</title>
-<meta name="description" content="Staging build surface for the GridSchool world client.">
-<meta name="robots" content="noindex">
-<style>
-  :root { --bg:#05070c; --line:#16233d; --cyan:#28e1ff; --text:#d7e2f0; --muted:#7f92ab; }
-  * { box-sizing:border-box; margin:0; }
-  body {
-    background:var(--bg); color:var(--text); font:400 16px/1.6 "IBM Plex Mono",ui-monospace,monospace;
-    min-height:100vh; display:grid; place-items:center;
-    background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px);
-    background-size:48px 48px; background-position:center;
-  }
-  main { max-width:34rem; padding:2rem; border:1px solid var(--line); background:rgba(5,7,12,.92); }
-  h1 { font-size:1.1rem; letter-spacing:.08em; color:var(--cyan); margin-bottom:.75rem; }
-  p { color:var(--muted); margin-bottom:.75rem; }
-  code { color:var(--text); }
-  a { color:var(--cyan); }
-</style>
-</head>
-<body>
-<main>
-  <h1>THE WORLD — STAGING</h1>
-  <p>The web client build has not been published to this surface yet.
-     The world server itself is live; this page is the slot the Unity WebGL build deploys into.</p>
-  <p>Server health: <code id="h">checking…</code></p>
-  <p>Built in public by <a href="https://gridschool.org">GridSchool</a> students —
-     <a href="https://github.com/Grid-School/gridschool-world-client">source</a>.</p>
-</main>
-<script>
-  fetch("https://gridschool-world-staging.2q0rcr0ks5h5e.us-west-2.cs.amazonlightsail.com/health")
-    .then(r => { document.getElementById("h").textContent = r.status + (r.ok ? " OK" : " (GF-1: the world reports itself dead when empty)"); })
-    .catch(() => { document.getElementById("h").textContent = "unreachable"; });
-</script>
-</body>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>The world — GridSchool</title>
+    <meta name="description" content="The persistent world built and operated by GridSchool students.">
+    <link rel="shortcut icon" href="TemplateData/favicon.ico">
+    <link rel="stylesheet" href="TemplateData/style.css">
+  </head>
+  <body>
+    <canvas id="unity-canvas" tabindex="-1"></canvas>
+    <div id="loading">
+      <div id="loading-word">THE WORLD</div>
+      <div id="loading-bar"><div id="loading-fill"></div></div>
+      <div id="loading-note">loading the client</div>
+    </div>
+    <div id="warning"></div>
+    <footer id="foot">
+      <span id="foot-env"></span>
+      <a href="https://gridschool.org">gridschool.org</a>
+      <button id="fullscreen" type="button" title="Fullscreen">⤢</button>
+    </footer>
+    <script>
+      var canvas = document.querySelector("#unity-canvas");
+      var buildUrl = "Build";
+
+      function showBanner(msg, type) {
+        var box = document.querySelector("#warning");
+        var div = document.createElement("div");
+        div.textContent = msg;
+        div.className = type || "";
+        box.appendChild(div);
+        if (type !== "error") setTimeout(function () { div.remove(); }, 5000);
+      }
+
+      var config = {
+        arguments: [],
+        dataUrl: buildUrl + "/web.data.unityweb",
+        frameworkUrl: buildUrl + "/web.framework.js.unityweb",
+        codeUrl: buildUrl + "/web.wasm.unityweb",
+        // Unity 6000.0.35–.41: the loader fetches workerUrl unconditionally and
+        // throws on undefined when decompression fallback is on. Point it at the
+        // smallest file already on disk; the blob is never used without threads.
+        // Drop this line once the project moves to 6000.0.42f1 or later.
+        workerUrl: buildUrl + "/web.loader.js",
+        streamingAssetsUrl: "StreamingAssets",
+        companyName: "DefaultCompany",
+        productName: "Contigo",
+        productVersion: "0.1.0",
+        showBanner: showBanner,
+      };
+
+      var host = location.hostname;
+      document.querySelector("#foot-env").textContent =
+        host.indexOf("play-staging.") === 0 ? "staging" :
+        (host === "localhost" || host === "127.0.0.1") ? "local" : "live";
+
+      var script = document.createElement("script");
+      script.src = buildUrl + "/web.loader.js";
+      script.onload = function () {
+        createUnityInstance(canvas, config, function (progress) {
+          document.querySelector("#loading-fill").style.width = (100 * progress) + "%";
+        }).then(function (unityInstance) {
+          document.querySelector("#loading").remove();
+          document.querySelector("#fullscreen").onclick = function () { unityInstance.SetFullscreen(1); };
+        }).catch(function (message) {
+          document.querySelector("#loading-note").textContent = String(message);
+          document.querySelector("#loading").classList.add("failed");
+        });
+      };
+      document.body.appendChild(script);
+    </script>
+  </body>
 </html>

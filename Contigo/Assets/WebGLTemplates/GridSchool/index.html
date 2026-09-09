@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>The world — GridSchool</title>
+    <meta name="description" content="The persistent world built and operated by GridSchool students.">
+    <link rel="shortcut icon" href="TemplateData/favicon.ico">
+    <link rel="stylesheet" href="TemplateData/style.css">
+  </head>
+  <body>
+    <canvas id="unity-canvas" tabindex="-1"></canvas>
+    <div id="loading">
+      <div id="loading-word">THE WORLD</div>
+      <div id="loading-bar"><div id="loading-fill"></div></div>
+      <div id="loading-note">loading the client</div>
+    </div>
+    <div id="warning"></div>
+    <footer id="foot">
+      <span id="foot-env"></span>
+      <a href="https://gridschool.org">gridschool.org</a>
+      <button id="fullscreen" type="button" title="Fullscreen">⤢</button>
+    </footer>
+    <script>
+      var canvas = document.querySelector("#unity-canvas");
+      var buildUrl = "Build";
+
+      function showBanner(msg, type) {
+        var box = document.querySelector("#warning");
+        var div = document.createElement("div");
+        div.textContent = msg;
+        div.className = type || "";
+        box.appendChild(div);
+        if (type !== "error") setTimeout(function () { div.remove(); }, 5000);
+      }
+
+      var config = {
+        arguments: [],
+        dataUrl: buildUrl + "/{{{ DATA_FILENAME }}}",
+        frameworkUrl: buildUrl + "/{{{ FRAMEWORK_FILENAME }}}",
+        codeUrl: buildUrl + "/{{{ CODE_FILENAME }}}",
+        // Unity 6000.0.35–.41: the loader fetches workerUrl unconditionally and
+        // throws on undefined when decompression fallback is on. Point it at the
+        // smallest file already on disk; the blob is never used without threads.
+        // Drop this line once the project moves to 6000.0.42f1 or later.
+        workerUrl: buildUrl + "/{{{ LOADER_FILENAME }}}",
+        streamingAssetsUrl: "StreamingAssets",
+        companyName: {{{ JSON.stringify(COMPANY_NAME) }}},
+        productName: {{{ JSON.stringify(PRODUCT_NAME) }}},
+        productVersion: {{{ JSON.stringify(PRODUCT_VERSION) }}},
+        showBanner: showBanner,
+      };
+
+      var host = location.hostname;
+      document.querySelector("#foot-env").textContent =
+        host.indexOf("play-staging.") === 0 ? "staging" :
+        (host === "localhost" || host === "127.0.0.1") ? "local" : "live";
+
+      var script = document.createElement("script");
+      script.src = buildUrl + "/{{{ LOADER_FILENAME }}}";
+      script.onload = function () {
+        createUnityInstance(canvas, config, function (progress) {
+          document.querySelector("#loading-fill").style.width = (100 * progress) + "%";
+        }).then(function (unityInstance) {
+          document.querySelector("#loading").remove();
+          document.querySelector("#fullscreen").onclick = function () { unityInstance.SetFullscreen(1); };
+        }).catch(function (message) {
+          document.querySelector("#loading-note").textContent = String(message);
+          document.querySelector("#loading").classList.add("failed");
+        });
+      };
+      document.body.appendChild(script);
+    </script>
+  </body>
+</html>
